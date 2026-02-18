@@ -12,5 +12,5 @@ resources:
 
 images:
   - name: controller
-    newName: ghcr.io/inherent-design/cfgate
+    newName: ghcr.io/cfgate/cfgate
     newTag: latest

@@ -3,7 +3,7 @@
 [env]
 _.file = ["secrets.enc.yaml", ".env"]
 IMG = "cfgate:local"
-REGISTRY = "ghcr.io/inherent-design/cfgate"
+REGISTRY = "ghcr.io/cfgate/cfgate"
 CLUSTER_NAME = "abaddon"
 GATEWAY_API_VERSION = "v1.4.1"
 
@@ -133,18 +133,6 @@ kubectl delete -k config/crd --ignore-not-found
 kubectl delete -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml" --ignore-not-found 2>/dev/null || true
 """
 
-[tasks."local:helm"]
-description = "Deploy controller via local Helm chart"
-depends = ["codegen", "docker:build"]
-run = """
-kind load docker-image ${IMG} --name ${CLUSTER_NAME}
-helm upgrade --install cfgate charts/cfgate \
-  --namespace cfgate-system --create-namespace \
-  --set image.repository=${IMG%%:*} \
-  --set image.tag=${IMG##*:} \
-  --set image.pullPolicy=Never
-"""
-
 #
 # Controller
 #
@@ -177,18 +165,6 @@ else
   docker push ${REGISTRY}:dev
 fi
 """
-
-#
-# Helm
-#
-
-[tasks."helm:lint"]
-description = "Lint Helm chart"
-run = "sh tasks/helm-lint.sh"
-
-[tasks."helm:template"]
-description = "Render Helm chart templates (dry run)"
-run = "helm template cfgate charts/cfgate"
 
 [tasks."docker:buildx"]
 description = "Build multi-arch image (amd64 + arm64)"

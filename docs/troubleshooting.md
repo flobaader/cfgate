@@ -337,7 +337,7 @@ Replace `cloudflaretunnel` with `cloudflaredns` or `cloudflareaccesspolicy` as n
    helm uninstall cfgate -n cfgate-system
 
    # Kustomize
-   kubectl delete -f https://github.com/inherent-design/cfgate/releases/latest/download/install.yaml
+   kubectl delete -f https://github.com/cfgate/cfgate/releases/latest/download/install.yaml
    ```
 
 3. **Delete CRDs** (optional; only if you want full removal):

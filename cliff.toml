@@ -61,7 +61,7 @@ filter_commits = false
 tag_pattern = "v[0-9].*"
 sort_commits = "oldest"
 link_parsers = [
-  { pattern = "#(\\d+)", href = "https://github.com/inherent-design/cfgate/issues/${1}" },
+  { pattern = "#(\\d+)", href = "https://github.com/cfgate/cfgate/issues/${1}" },
 ]
 
 [bump]

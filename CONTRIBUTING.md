@@ -11,22 +11,17 @@
 ## Getting Started
 
 ```bash
-git clone https://github.com/inherent-design/cfgate.git
+git clone https://github.com/cfgate/cfgate.git
 cd cfgate
 
-# Install toolchain (Go, kind, kubectl, kustomize, golangci-lint, controller-gen, ginkgo)
 mise install
 
-# List available tasks
 mise tasks
 
-# Generate CRDs and DeepCopy
 mise run codegen
 
-# Build
 mise run build
 
-# Lint
 mise run lint
 ```
 
@@ -34,10 +29,10 @@ mise run lint
 
 | Task | Alias | Description |
 |------|-------|-------------|
-| `codegen` | -- | Generate DeepCopy and CRD manifests |
+| `codegen` | `gen` | Generate DeepCopy and CRD manifests |
 | `build` | `b` | Build manager binary with version info |
 | `lint` | -- | Run golangci-lint |
-| `lint:fix` | -- | Run golangci-lint with auto-fix |
+| `lint:fix` | `fix` | Run golangci-lint with auto-fix |
 | `format` | `fmt` | Format and vet code |
 | `manifests` | `dist` | Generate release manifests to `dist/` |
 | `e2e` | -- | Run E2E tests against live Cloudflare API |
@@ -47,15 +42,12 @@ mise run lint
 | `cluster:status` | -- | Check cfgate dev cluster status |
 | `local:install` | -- | Install Gateway API and cfgate CRDs |
 | `local:deploy` | -- | Deploy controller to current cluster (kustomize) |
-| `local:helm` | -- | Deploy controller via local Helm chart |
 | `local:undeploy` | -- | Remove controller from current cluster |
 | `local:uninstall` | -- | Uninstall CRDs from current cluster |
 | `run` | -- | Run controller locally (outside cluster) |
 | `docker:build` | `db` | Build Docker image |
 | `docker:push` | `dp` | Push Docker image to registry |
 | `docker:buildx` | -- | Build multi-arch image (amd64 + arm64) |
-| `helm:lint` | -- | Lint Helm chart |
-| `helm:template` | -- | Render Helm chart templates (dry run) |
 
 ## Secrets Configuration
 
@@ -73,7 +65,7 @@ This outputs your public key (starts with `age1...`). Save it. You need it for `
 
 2. **Configure sops to use your key:**
 
-Edit `.sops.yaml` in the cfgate repo root to use your public key:
+Edit `.sops.yaml` in the repo root to use your public key:
 
 ```yaml
 creation_rules:
@@ -113,13 +105,10 @@ sops -e -i secrets.enc.yaml
 ### Verifying Secrets
 
 ```bash
-# Decrypt and view (does not modify the file)
 sops decrypt secrets.enc.yaml
 
-# Edit encrypted file in-place
 sops secrets.enc.yaml
 
-# Verify mise can read them
 mise env | grep CLOUDFLARE
 ```
 
@@ -148,13 +137,10 @@ See [docs/TESTING.md](docs/TESTING.md) for the full testing guide including:
 Quick start:
 
 ```bash
-# Create cluster (test suite installs CRDs automatically)
 mise run cluster:create
 
-# Run E2E tests
 mise run e2e
 
-# Clean up orphaned resources
 mise run e2e:cleanup
 ```
 
@@ -175,17 +161,14 @@ mise run e2e:cleanup
 When modifying files in `api/v1alpha1/`:
 
 ```bash
-# Regenerate DeepCopy methods and CRD manifests
 mise run codegen
 
-# Verify CRDs are valid
 mise run local:install
 ```
 
 ### Running the Controller Locally
 
 ```bash
-# Against current kubeconfig cluster (CRDs must be installed)
 mise run run
 ```
 
@@ -211,12 +194,18 @@ cfgate/
     default/              # Kustomize overlay for deployment
     manager/              # Controller deployment resources
     rbac/                 # RBAC resources
-  charts/cfgate/          # Helm chart
   test/e2e/               # E2E test suite
   examples/               # Usage examples
   docs/                   # Documentation
   hack/                   # Build utilities
 ```
+
+## Related Repositories
+
+| Repository | Description |
+| ---------- | ----------- |
+| [cfgate/helm-chart](https://github.com/cfgate/helm-chart) | Helm chart |
+| [cfgate/cfgate.io](https://github.com/cfgate/cfgate.io) | Project website |
 
 ## Commits
 

@@ -1,8 +1,8 @@
 # cfgate
 
-[![Latest Release](https://img.shields.io/github/v/release/inherent-design/cfgate?style=flat)](https://github.com/inherent-design/cfgate/releases/latest) [![Image](https://img.shields.io/github/v/release/inherent-design/cfgate?style=flat&label=image&logo=docker&logoColor=white&color=2496ED)](https://github.com/orgs/inherent-design/packages/container/package/cfgate) [![Helm Chart](https://img.shields.io/badge/chart-GHCR-0F1689?style=flat&logo=helm&logoColor=white)](https://github.com/orgs/inherent-design/packages/container/package/charts%2Fcfgate)
+[![Latest Release](https://img.shields.io/github/v/release/cfgate/cfgate?style=flat)](https://github.com/cfgate/cfgate/releases/latest) [![Image](https://img.shields.io/github/v/release/cfgate/cfgate?style=flat&label=image&logo=docker&logoColor=white&color=2496ED)](https://github.com/orgs/cfgate/packages/container/package/cfgate) [![Helm Chart](https://img.shields.io/badge/chart-GHCR-0F1689?style=flat&logo=helm&logoColor=white)](https://github.com/orgs/cfgate/packages/container/package/charts%2Fcfgate)
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/inherent-design/cfgate/ci.yml?style=flat)](https://github.com/inherent-design/cfgate/actions/workflows/ci.yml) [![Go Report Card](https://goreportcard.com/badge/github.com/inherent-design/cfgate)](https://goreportcard.com/report/github.com/inherent-design/cfgate) [![Go Reference](https://pkg.go.dev/badge/github.com/inherent-design/cfgate.svg)](https://pkg.go.dev/cfgate.io/cfgate/)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/cfgate/cfgate/ci.yml?style=flat)](https://github.com/cfgate/cfgate/actions/workflows/ci.yml) [![Go Report Card](https://goreportcard.com/badge/github.com/cfgate/cfgate)](https://goreportcard.com/report/github.com/cfgate/cfgate) [![Go Reference](https://pkg.go.dev/badge/github.com/cfgate/cfgate.svg)](https://pkg.go.dev/cfgate.io/cfgate/)
 
 Gateway API-native Kubernetes operator for Cloudflare Tunnel, DNS, and Access management.
 
@@ -127,17 +127,15 @@ If neither path resolves, reconciliation fails with `CredentialsInvalid`.
 ### Kustomize
 
 ```bash
-# Gateway API CRDs (required)
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml
 
-# cfgate controller + CRDs
-kubectl apply -f https://github.com/inherent-design/cfgate/releases/latest/download/install.yaml
+kubectl apply -f https://github.com/cfgate/cfgate/releases/latest/download/install.yaml
 ```
 
 ### Helm
 
 ```bash
-helm install cfgate oci://ghcr.io/inherent-design/charts/cfgate \
+helm install cfgate oci://ghcr.io/cfgate/charts/cfgate \
   --namespace cfgate-system --create-namespace
 ```
 
@@ -263,6 +261,13 @@ cfgate automatically:
 | [Contributing](CONTRIBUTING.md)                            | Development setup                                     |
 | [Changelog](CHANGELOG.md)                                  | Release history                                       |
 
+## Related Repositories
+
+| Repository | Description |
+| ---------- | ----------- |
+| [cfgate/helm-chart](https://github.com/cfgate/helm-chart) | Helm chart for cfgate |
+| [cfgate/cfgate.io](https://github.com/cfgate/cfgate.io) | Project website |
+
 ## Requirements
 
 ### Cloudflare API Token
@@ -301,7 +306,7 @@ spec:
     - name: example.com
     - name: example.org
     - name: staging.co.uk
-      id: "optional-zone-id"  # skips API lookup
+      id: "optional-zone-id"
 ```
 
 The controller extracts the zone from each hostname using the public suffix list, matches it against configured zones, and syncs records to the correct zone. Token permissions determine which zones are accessible.
@@ -361,8 +366,8 @@ See [docs/TESTING.md](docs/TESTING.md) for E2E test strategy, environment variab
 
 ```bash
 brew install mise
-mise install       # Install toolchain
-mise tasks         # List available tasks
+mise install
+mise tasks
 ```
 
 ## License
