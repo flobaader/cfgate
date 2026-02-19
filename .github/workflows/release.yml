@@ -40,6 +40,43 @@ jobs:
       - id: version
         run: echo "clean=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
+      - id: channel
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$VERSION" == *"-alpha."* ]]; then
+            echo "level=alpha" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          elif [[ "$VERSION" == *"-beta."* ]]; then
+            echo "level=beta" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          elif [[ "$VERSION" == *"-rc."* ]]; then
+            echo "level=rc" >> $GITHUB_OUTPUT
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "level=stable" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+          IS_LATEST=false
+          if [[ "$VERSION" != *"-"* ]]; then
+            IS_LATEST=true
+          else
+            HAS_STABLE=false
+            HAS_BETA=false
+            for tag in $(git tag -l 'v*' | grep -v "^${GITHUB_REF_NAME}$"); do
+              v="${tag#v}"
+              [[ "$v" != *"-"* ]] && HAS_STABLE=true
+              [[ "$v" == *"-beta."* || "$v" == *"-rc."* ]] && HAS_BETA=true
+            done
+            if [[ "$VERSION" == *"-alpha."* && "$HAS_BETA" == "false" && "$HAS_STABLE" == "false" ]]; then
+              IS_LATEST=true
+            elif [[ "$VERSION" == *"-beta."* && "$HAS_STABLE" == "false" ]]; then
+              IS_LATEST=true
+            elif [[ "$VERSION" == *"-rc."* && "$HAS_STABLE" == "false" ]]; then
+              IS_LATEST=true
+            fi
+          fi
+          echo "is-latest=$IS_LATEST" >> $GITHUB_OUTPUT
+
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -49,9 +86,17 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha,prefix=
+            type=raw,value=latest,enable=${{ steps.channel.outputs.is-latest }}
+            type=raw,value=${{ steps.channel.outputs.level }},enable=${{ steps.channel.outputs.prerelease == 'true' }}
           labels: |
             io.artifacthub.package.readme-url=https://raw.githubusercontent.com/cfgate/cfgate/main/README.md
             io.artifacthub.package.license=Apache-2.0
+            io.artifacthub.package.prerelease=${{ steps.channel.outputs.prerelease }}
+            io.artifacthub.package.category=networking
+            io.artifacthub.package.keywords=kubernetes,cloudflare,gateway-api,tunnel,dns,operator,controller
+            io.artifacthub.package.maintainers=[{"name":"inherent-design","email":"mannie@inherent.design"}]
+            org.opencontainers.image.vendor=inherent.design
+            org.opencontainers.image.documentation=https://cfgate.io
 
       - id: push
         uses: useblacksmith/build-push-action@v2
@@ -96,6 +141,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           body: ${{ steps.changelog.outputs.content }}
+          prerelease: ${{ steps.channel.outputs.prerelease == 'true' }}
           files: |
             dist/install.yaml
             dist/crds.yaml
@@ -107,6 +153,8 @@ jobs:
         run: |
           echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
           echo "- Version: ${{ steps.version.outputs.clean }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Channel: ${{ steps.channel.outputs.level }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Latest: ${{ steps.channel.outputs.is-latest }}" >> $GITHUB_STEP_SUMMARY
           echo "- Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.clean }}" >> $GITHUB_STEP_SUMMARY
           echo "- Digest: ${{ steps.push.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
 
