@@ -3,12 +3,55 @@
 All notable changes to cfgate are documented in this file.
 
 
-## [Unreleased]
+## [0.1.0-alpha.12] - 2026-02-19
+
+### Features
+
+- Add cosign keyless signing to container releases
+
+### Bug Fixes
+
+- Unmark GH release as pre-release
+
+### Maintenance
+
+- **(actions)** Add timesouts, pin versions
+
+## [0.1.0-alpha.11] - 2026-02-19
+
+### Features
+
+- **(site)** Add "images"
+- New image release tags for AH
+
+### CI/CD
+
+- Add Artifact Hub metadata and annotations
+
+### Maintenance
+
+- **(site)** Update packages
+- **(site)** Update images
+- Rename Cloudflare worker
+
+### Other
+
+- Inherent-design/cfgate -> cfgate/cfgate
+
+## [0.1.0-alpha.10] - 2026-02-17
+
+### Features
+
+- Scaffold Astro alongside Hono worker
+- **(site)** Wire static assets and OG tags into Astro layout
+- **(site)** Integrate brand design system, i18n, and Starwind UI
+- **(site)** Add Hindi translation, fix zh locale label
 
 ### Bug Fixes
 
 - **(test)** Add fallback credentials to deletion invariant DNS resource
 - Patch task scripts for empty-arg bug, fragile cd, contract docs
+- **(site)** Update English subtitle to match translation structure
 
 ### Testing
 
@@ -21,11 +64,18 @@ All notable changes to cfgate are documented in this file.
 ### Refactoring
 
 - Extract shared task scripts for mise/CI invariance
+- **(site)** Switch to published @inherent.design/brand package
+- **(site)** Use brand components, theme button globally
 
 ### Maintenance
 
+- Update pnpm-lock
+- **(site)** Update packages
+- **(site)** Remove stale scripts, rename deploy:cf -> deploy
+- **(site)** Fix scripts
+- Update brand package
 - Update README
-- Repo split: controller extracted to cfgate/cfgate
+- Sync chart + app version
 
 ## [0.1.0-alpha.9] - 2026-02-09
 
