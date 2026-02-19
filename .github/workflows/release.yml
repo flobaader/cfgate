@@ -141,7 +141,6 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           body: ${{ steps.changelog.outputs.content }}
-          prerelease: ${{ steps.channel.outputs.prerelease == 'true' }}
           files: |
             dist/install.yaml
             dist/crds.yaml
