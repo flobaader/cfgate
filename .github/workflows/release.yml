@@ -91,6 +91,7 @@ jobs:
             type=raw,value=${{ steps.channel.outputs.level }},enable=${{ steps.channel.outputs.prerelease == 'true' }}
           labels: |
             io.artifacthub.package.readme-url=https://raw.githubusercontent.com/cfgate/cfgate/main/README.md
+            io.artifacthub.package.logo-url=https://cfgate.io/icon.png
             io.artifacthub.package.license=Apache-2.0
             io.artifacthub.package.prerelease=${{ steps.channel.outputs.prerelease }}
             io.artifacthub.package.category=networking
