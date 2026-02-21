@@ -75,9 +75,10 @@ type ExternalTarget struct {
 	Type RecordType `json:"type"`
 
 	// Value is the target value (domain for CNAME, IP for A/AAAA).
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
 	Value string `json:"value"`
 }
 
@@ -88,9 +89,11 @@ type ExternalTarget struct {
 // for all records in this zone.
 type DNSZoneConfig struct {
 	// Name is the zone domain name (e.g., example.com).
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="self.split('.').all(s, size(s) <= 63)",message="each DNS label must not exceed 63 octets (RFC 1035 section 2.3.4)"
 	Name string `json:"name"`
 
 	// ID is the optional explicit zone ID (skips API lookup).
@@ -153,15 +156,18 @@ type DNSGatewayRoutesSource struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.ttl) || self.ttl == 1 || (self.ttl >= 60 && self.ttl <= 86400)",message="TTL must be 1 (auto) or between 60 and 86400 seconds"
 type DNSExplicitHostname struct {
 	// Hostname is the DNS hostname to create.
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="self.split('.').all(s, size(s) <= 63)",message="each DNS label must not exceed 63 octets (RFC 1035 section 2.3.4)"
 	Hostname string `json:"hostname"`
 
 	// Target is the CNAME target. Supports template variable {{ .TunnelDomain }}.
 	// Defaults to tunnel domain when tunnelRef is specified.
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +optional
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
 	Target string `json:"target,omitempty"`
 
 	// Proxied enables Cloudflare proxy for this record.

@@ -186,10 +186,15 @@ spec:
                     maxLength: 1024
                     type: string
                   domain:
-                    description: Domain is the protected domain (auto-generated from
-                      routes if omitted).
-                    maxLength: 255
+                    description: |-
+                      Domain is the protected domain (auto-generated from routes if omitted).
+                      Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                    maxLength: 253
                     type: string
+                    x-kubernetes-validations:
+                    - message: each DNS label must not exceed 63 octets (RFC 1035
+                        section 2.3.4)
+                      rule: self == '' || self.split('.').all(s, size(s) <= 63)
                   enableBindingCookie:
                     default: false
                     description: EnableBindingCookie enables binding cookies for sticky
@@ -390,9 +395,10 @@ spec:
                             minimum: 1
                             type: integer
                           emailDomain:
-                            description: EmailDomain allows any user from domain to
-                              approve.
-                            maxLength: 255
+                            description: |-
+                              EmailDomain allows any user from domain to approve.
+                              Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                            maxLength: 253
                             type: string
                           emails:
                             description: Emails of approvers.
@@ -480,8 +486,10 @@ spec:
                               SDK: DomainRule
                             properties:
                               domain:
-                                description: Domain suffix (e.g., "example.com").
-                                maxLength: 255
+                                description: |-
+                                  Domain suffix (e.g., "example.com").
+                                  Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                                maxLength: 253
                                 minLength: 1
                                 type: string
                             required:
@@ -669,8 +677,10 @@ spec:
                               SDK: DomainRule
                             properties:
                               domain:
-                                description: Domain suffix (e.g., "example.com").
-                                maxLength: 255
+                                description: |-
+                                  Domain suffix (e.g., "example.com").
+                                  Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                                maxLength: 253
                                 minLength: 1
                                 type: string
                             required:
@@ -879,8 +889,10 @@ spec:
                               SDK: DomainRule
                             properties:
                               domain:
-                                description: Domain suffix (e.g., "example.com").
-                                maxLength: 255
+                                description: |-
+                                  Domain suffix (e.g., "example.com").
+                                  Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                                maxLength: 253
                                 minLength: 1
                                 type: string
                             required:

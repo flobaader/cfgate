@@ -132,8 +132,10 @@ type AccessApplication struct {
 	Name string `json:"name,omitempty"`
 
 	// Domain is the protected domain (auto-generated from routes if omitted).
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +optional
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="self == '' || self.split('.').all(s, size(s) <= 63)",message="each DNS label must not exceed 63 octets (RFC 1035 section 2.3.4)"
 	Domain string `json:"domain,omitempty"`
 
 	// Path restricts protection to specific path prefix.
@@ -504,8 +506,9 @@ type AccessEmailListRule struct {
 // domain. Useful for allowing entire organizations or teams. Maps to cloudflare-go DomainRule.
 type AccessEmailDomainRule struct {
 	// Domain suffix (e.g., "example.com").
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
 	Domain string `json:"domain"`
 }
 
@@ -580,8 +583,9 @@ type ApprovalGroup struct {
 	Emails []string `json:"emails,omitempty"`
 
 	// EmailDomain allows any user from domain to approve.
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +optional
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
 	EmailDomain string `json:"emailDomain,omitempty"`
 
 	// ApprovalsNeeded is number of approvals required.

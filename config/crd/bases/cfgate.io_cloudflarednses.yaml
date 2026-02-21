@@ -186,9 +186,10 @@ spec:
                     description: Type is the DNS record type.
                     type: string
                   value:
-                    description: Value is the target value (domain for CNAME, IP for
-                      A/AAAA).
-                    maxLength: 255
+                    description: |-
+                      Value is the target value (domain for CNAME, IP for A/AAAA).
+                      Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                    maxLength: 253
                     minLength: 1
                     type: string
                 required:
@@ -290,10 +291,16 @@ spec:
                         variable for dynamic resolution when using tunnelRef.
                       properties:
                         hostname:
-                          description: Hostname is the DNS hostname to create.
-                          maxLength: 255
+                          description: |-
+                            Hostname is the DNS hostname to create.
+                            Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                          maxLength: 253
                           minLength: 1
                           type: string
+                          x-kubernetes-validations:
+                          - message: each DNS label must not exceed 63 octets (RFC
+                              1035 section 2.3.4)
+                            rule: self.split('.').all(s, size(s) <= 63)
                         proxied:
                           description: |-
                             Proxied enables Cloudflare proxy for this record.
@@ -303,7 +310,8 @@ spec:
                           description: |-
                             Target is the CNAME target. Supports template variable {{ .TunnelDomain }}.
                             Defaults to tunnel domain when tunnelRef is specified.
-                          maxLength: 255
+                            Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                          maxLength: 253
                           type: string
                         ttl:
                           default: 1
@@ -393,10 +401,16 @@ spec:
                       pattern: ^[a-f0-9]{32}$
                       type: string
                     name:
-                      description: Name is the zone domain name (e.g., example.com).
-                      maxLength: 255
+                      description: |-
+                        Name is the zone domain name (e.g., example.com).
+                        Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                      maxLength: 253
                       minLength: 1
                       type: string
+                      x-kubernetes-validations:
+                      - message: each DNS label must not exceed 63 octets (RFC 1035
+                          section 2.3.4)
+                        rule: self.split('.').all(s, size(s) <= 63)
                     proxied:
                       description: |-
                         Proxied sets the default proxied setting for this zone.
