@@ -361,6 +361,13 @@ func (r *GatewayReconciler) findGatewaysForHTTPRoute(ctx context.Context, obj cl
 	var requests []reconcile.Request
 	seen := make(map[types.NamespacedName]bool)
 	for _, parentRef := range route.Spec.ParentRefs {
+		if parentRef.Group != nil && string(*parentRef.Group) != gwapiv1.GroupName {
+			continue
+		}
+		if parentRef.Kind != nil && string(*parentRef.Kind) != "Gateway" {
+			continue
+		}
+
 		gwNamespace := route.Namespace
 		if parentRef.Namespace != nil {
 			gwNamespace = string(*parentRef.Namespace)
