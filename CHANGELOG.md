@@ -3,11 +3,31 @@
 All notable changes to cfgate are documented in this file.
 
 
-## [0.1.0-alpha.13] - Unreleased
+## [0.1.0-alpha.13] - 2026-02-21
 
-### Deprecations
+### Bug Fixes
 
-- **spec.ownership.comment.enabled** and **spec.ownership.comment.template** are deprecated and ignored. The controller always writes a hardcoded `"managed by cfgate"` comment. Both fields will be removed in **v0.1.0-alpha.14**. To migrate, remove the `comment` section from `spec.ownership`.
+- Sort ingress rules by path specificity, harden SDK and controllers
+- **(controller)** Add isGatewayParentRef guard in findGatewaysForHTTPRoute
+- DNS cleanup path, ownership matching, status constants, CEL rules
+- **(crd)** Tighten DNS hostname validation per RFC 1035
+
+### Documentation
+
+- Rewrite README, extract service-mesh guide, add cross-references
+- Apply prose style conventions across documentation
+
+### Maintenance
+
+- Generate changelog
+- Bind container image
+- Add CI workflows, ignore E2E output directory
+
+### Other
+
+- Merge pull request #1 from cfgate/v0.1.0-alpha.13
+
+v0.1.0-alpha.13
 
 ## [0.1.0-alpha.12] - 2026-02-19
 
