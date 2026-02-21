@@ -89,7 +89,7 @@ Access rules are organized into implementation tiers based on identity provider 
 
 These are mutually exclusive. Exactly one must be specified.
 
-Identifies which Gateway API resources to protect. The controller extracts hostnames from the targeted resources and creates Access Applications for those hostnames. Follows the Gateway API policy attachment pattern (`LocalPolicyTargetReferenceWithSectionName`).
+Identifies which Gateway API resources to protect. The controller extracts hostnames from the targeted resources and creates Access Applications for those hostnames. Follows the [Gateway API](gateway-api-primer.md) policy attachment pattern (`LocalPolicyTargetReferenceWithSectionName`). Routes can also reference an access policy via the `cfgate.io/access-policy` annotation — see [Annotations Reference](annotations.md#cfgateio%2Faccess-policy).
 
 **Cross-namespace references:** When `namespace` is specified and differs from the policy's namespace, a ReferenceGrant must exist in the target namespace permitting CloudflareAccessPolicy resources from the policy's namespace.
 
@@ -124,7 +124,7 @@ References Cloudflare credentials for Access API operations. When omitted, the c
 
 **Credential resolution chain:**
 1. Explicit `cloudflareRef` on the CloudflareAccessPolicy
-2. Gateway target's tunnel chain (Gateway > tunnel binding > CloudflareTunnel credentials)
+2. Gateway target's tunnel chain (Gateway > tunnel binding > [CloudflareTunnel](cloudflare-tunnel.md) credentials)
 3. HTTPRoute > parentRef > Gateway > tunnel chain
 
 If no path resolves to valid credentials, the controller sets `CredentialsValid` condition to `False` with an error message.

@@ -3,11 +3,30 @@
 # Env: E2E_USE_EXISTING_CLUSTER - use existing cluster (default: "true")
 # Env: E2E_PROCS              - parallel ginkgo procs (default: 4)
 # Env: E2E_FOCUS              - ginkgo --focus regex (default: disabled)
+# Env: CLUSTER_NAME            - kind cluster name (default: "abaddon", from mise.toml)
 set -eu
 
 export E2E_USE_EXISTING_CLUSTER="${E2E_USE_EXISTING_CLUSTER:-true}"
 
-echo "Running E2E tests"
+# Switch kubectl context to the dev cluster for the duration of the test run.
+# Restores the original context on exit (success or failure).
+target_context="kind-${CLUSTER_NAME:-abaddon}"
+original_context="$(kubectl config current-context 2>/dev/null || echo "")"
+
+restore_context() {
+	if [ -n "$original_context" ] && [ "$original_context" != "$target_context" ]; then
+		echo "Restoring kubectl context to ${original_context}"
+		kubectl config use-context "$original_context" >/dev/null 2>&1 || true
+	fi
+}
+trap restore_context EXIT
+
+if [ "$(kubectl config current-context 2>/dev/null)" != "$target_context" ]; then
+	echo "Switching kubectl context: $(kubectl config current-context) -> ${target_context}"
+	kubectl config use-context "$target_context"
+fi
+
+echo "Running E2E tests (context: ${target_context})"
 
 mkdir -p out
 

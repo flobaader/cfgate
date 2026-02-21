@@ -42,8 +42,8 @@ When using `tunnelRef`, credentials are inherited from the referenced [Cloudflar
 | `spec.ownership.ownerId` | `string` | *(namespace/name of the CloudflareDNS resource)* | No | Cluster/installation identifier for TXT ownership records. Max 253 chars. Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(/[a-z0-9]([-a-z0-9]*[a-z0-9])?)?$`. |
 | `spec.ownership.txtRecord.enabled` | `*bool` | `true` (nil defaults to true) | No | Enables TXT record-based ownership tracking. |
 | `spec.ownership.txtRecord.prefix` | `string` | `_cfgate` | No | Prefix for TXT record names. Max 63 chars. |
-| `spec.ownership.comment.enabled` | `bool` | `false` | No | Enables comment-based ownership tracking in the Cloudflare DNS record comment field. |
-| `spec.ownership.comment.template` | `string` | `managed by cfgate` | No | Comment template for ownership marking. Max 255 chars. |
+| `spec.ownership.comment.enabled` | `bool` | `false` | No | **Deprecated (alpha.13).** Ignored — the controller always writes a fixed comment. Will be removed in alpha.14. |
+| `spec.ownership.comment.template` | `string` | `managed by cfgate` | No | **Deprecated (alpha.13).** Ignored — the controller always uses `"managed by cfgate"`. Will be removed in alpha.14. |
 | `spec.cleanupPolicy.deleteOnRouteRemoval` | `*bool` | `true` (nil defaults to true) | No | Delete DNS records when the source route is deleted. |
 | `spec.cleanupPolicy.deleteOnResourceRemoval` | `*bool` | `true` (nil defaults to true) | No | Delete DNS records when the CloudflareDNS resource itself is deleted (finalizer cleanup). |
 | `spec.cleanupPolicy.onlyManaged` | `*bool` | `true` (nil defaults to true) | No | Only delete records that were created by cfgate, verified via ownership tracking. |
@@ -94,7 +94,7 @@ spec:
 
 ### `spec.zones`
 
-Defines the Cloudflare DNS zones where records will be managed. At least one zone is required (max 10).
+Defines the Cloudflare DNS zones where records will be managed. At least one zone is required (max 10). The controller extracts the zone from each hostname using the [public suffix list](https://publicsuffix.org/), matches it against configured zones, and syncs records to the correct zone. Your API token's zone-level permissions determine which zones are accessible.
 
 **`id` (optional):** When provided, the controller uses this zone ID directly and skips the API zone lookup. This avoids the extra API call and is useful when the token does not have zone-list permissions or when you want to pin a specific zone ID.
 
@@ -129,7 +129,7 @@ spec:
 
 Configures automatic hostname discovery from Gateway API routes (HTTPRoute, GRPCRoute, TCPRoute, UDPRoute).
 
-**`annotationFilter`:** An opt-in filter that restricts which routes trigger DNS sync. The controller checks this annotation on route resources (HTTPRoute, GRPCRoute, etc.), never on Gateways. You can use any annotation key=value pair of your choosing. The format is `key=value`.
+**`annotationFilter`:** An opt-in filter that restricts which routes trigger DNS sync. The controller checks this annotation on route resources (HTTPRoute, GRPCRoute, etc.), never on Gateways. You can use any annotation key=value pair of your choosing. The format is `key=value`. See [Annotations Reference](annotations.md#notes-on-annotationfilter) for details on how annotation filtering works.
 
 A common convention is `cfgate.io/dns-sync=enabled`, but this is not a controller-defined annotation; it is a user-chosen convention. The controller simply checks whether the route has the specified annotation with the specified value.
 
@@ -191,7 +191,9 @@ heritage=cfgate,cfgate/owner=<owner-id>,cfgate/resource=cloudflaredns/<namespace
 ```
 This pattern is compatible with external-dns. The TXT record name is `{prefix}.{hostname}` (e.g., `_cfgate.app.example.com`).
 
-**Comment ownership (lightweight alternative):** Uses the Cloudflare DNS record comment field. Simpler but provides less granular tracking and does not support multi-cluster conflict detection.
+**Comment ownership (cosmetic only):** The controller writes a fixed `"managed by cfgate"` comment on all managed DNS records. This is informational only and is not used for ownership verification or conflict detection. TXT record ownership is the sole mechanism for multi-cluster safety.
+
+> **Deprecation notice (alpha.13):** The `spec.ownership.comment.enabled` and `spec.ownership.comment.template` fields are deprecated and ignored. The controller always writes `"managed by cfgate"` regardless of these values. Both fields will be removed in **v0.1.0-alpha.14**. To migrate, remove the `comment` section from `spec.ownership` in your CloudflareDNS resources. No behavioral change occurs — the hardcoded value matches the previous defaults.
 
 **`ownerId`:** Identifies this installation. Defaults to `{namespace}/{name}` of the CloudflareDNS resource. Override this when you need explicit control over the identity (e.g., migrating between CloudflareDNS resources).
 
@@ -202,9 +204,6 @@ spec:
     txtRecord:
       enabled: true
       prefix: "_cfgate"
-    comment:
-      enabled: true
-      template: "managed by cfgate (prod-cluster)"
 ```
 
 ### `spec.cleanupPolicy`
@@ -268,11 +267,11 @@ spec:
 
 | Condition | Description |
 |-----------|-------------|
-| `Ready` | DNS sync is fully operational: credentials valid, target resolved, zones discovered, records synced. |
+| `Ready` | DNS sync is fully operational: credentials valid, zones resolved, records synced, ownership verified. Target resolution failures are surfaced through this condition with reason `TargetResolutionFailed`. |
 | `CredentialsValid` | Cloudflare API credentials have been validated. |
-| `TargetResolved` | Tunnel reference or external target has been resolved to a usable value. |
-| `ZonesDiscovered` | All configured zones have been discovered via the Cloudflare API (or verified by explicit ID). |
-| `DNSSynced` | DNS records have been synchronized to Cloudflare. |
+| `ZonesResolved` | All configured zones have been resolved via the Cloudflare API (or verified by explicit ID). |
+| `RecordsSynced` | DNS records have been synchronized to Cloudflare. |
+| `OwnershipVerified` | TXT ownership records have been verified for all managed DNS records. |
 
 ### kubectl Output Columns
 

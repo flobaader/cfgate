@@ -2,6 +2,8 @@
 
 ## DNS Records Not Syncing
 
+*For full field documentation, see [CloudflareDNS Reference](cloudflare-dns.md).*
+
 ### Symptoms
 - CNAME records are not created in Cloudflare for your hostnames
 - `kubectl get cloudflaredns` shows `READY: False` or `SYNCED: 0`
@@ -54,8 +56,8 @@
    ```
    Expected output:
    ```
-   NAMESPACE       NAME        READY   TUNNEL ID                              ROUTES   AGE
-   cfgate-system   my-tunnel   True    abcdef12-3456-7890-abcd-ef1234567890   3        10m
+   NAMESPACE       NAME        READY   TUNNEL ID                              REPLICAS   AGE
+   cfgate-system   my-tunnel   True    abcdef12-3456-7890-abcd-ef1234567890   2          10m
    ```
    If `READY` is `False`, resolve the tunnel issue first. CloudflareDNS cannot create CNAMEs without a tunnel domain.
 
@@ -71,13 +73,15 @@
 | Tunnel not ready | Fix the CloudflareTunnel first. DNS needs `status.tunnelDomain` for the CNAME target. |
 | Zone not configured | Add the zone to `spec.zones[]`. The zone name must match the domain suffix of your hostnames. |
 | API token missing DNS:Edit permission | Add Zone-level `DNS: Edit` permission to your Cloudflare API token. |
-| annotationFilter mismatch | Verify the annotation key and value on your HTTPRoutes matches the filter exactly. |
+| annotationFilter mismatch | Verify the annotation key and value on your HTTPRoutes matches the filter exactly. See [Annotations Reference](annotations.md#notes-on-annotationfilter). |
 | No routes found | Ensure `spec.source.gatewayRoutes.enabled: true` and routes have `parentRefs` pointing to a Gateway with `cfgate.io/tunnel-ref`. |
 | Gateway missing tunnel-ref | Add `cfgate.io/tunnel-ref: namespace/name` annotation to the Gateway resource. |
 
 ---
 
 ## GatewayClass Not Accepted
+
+*For Gateway API concepts, see [Gateway API Primer](gateway-api-primer.md).*
 
 ### Symptoms
 - `kubectl get gatewayclass cfgate` shows no `Accepted` condition or `Accepted: False`
@@ -127,10 +131,13 @@
 | Controller not running | Check pod status, describe pod for crash reasons |
 | Gateway API CRDs not installed | Install Gateway API CRDs before cfgate |
 | Multiple GatewayClasses with same controllerName | cfgate accepts all matching GatewayClasses, but check for conflicts |
+| Kiali KIA1504 warnings on cfgate GatewayClass | Not a real error. See [Service Mesh Integration](service-mesh.md#kiali) to configure Kiali. |
 
 ---
 
 ## Access Policy CredentialsInvalid
+
+*For full field documentation, see [CloudflareAccessPolicy Reference](cloudflare-access-policy.md).*
 
 ### Symptoms
 - CloudflareAccessPolicy shows condition `CredentialsValid: False` with reason `CredentialsInvalid`
@@ -209,6 +216,8 @@ flowchart TD
 
 ## Gateway Not Programmed
 
+*For tunnel field documentation, see [CloudflareTunnel Reference](cloudflare-tunnel.md).*
+
 ### Symptoms
 - Gateway shows condition `Programmed: False`
 - HTTPRoutes attached to the Gateway show `Accepted: False` in status
@@ -225,8 +234,8 @@ flowchart TD
    ```
    Expected output:
    ```
-   NAMESPACE       NAME        READY   TUNNEL ID                              ROUTES   AGE
-   cfgate-system   my-tunnel   True    abcdef12-3456-7890-abcd-ef1234567890   3        10m
+   NAMESPACE       NAME        READY   TUNNEL ID                              REPLICAS   AGE
+   cfgate-system   my-tunnel   True    abcdef12-3456-7890-abcd-ef1234567890   2          10m
    ```
 
 2. If the tunnel is not Ready, check its conditions:
@@ -410,3 +419,9 @@ Adjust the `deploy/cfgate` in log commands above if using kustomize:
 ```bash
 kubectl logs -n cfgate-system deploy/controller-manager -c manager
 ```
+
+---
+
+## See Also
+
+- [Service Mesh Integration](service-mesh.md) — running cfgate alongside Istio, Envoy Gateway, or other Gateway API implementations; suppressing Kiali KIA1504 warnings

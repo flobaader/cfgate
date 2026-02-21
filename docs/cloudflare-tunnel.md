@@ -133,7 +133,7 @@ spec:
 
 ### `spec.originDefaults`
 
-Default settings for how cloudflared connects to backend services in the cluster. These apply to all ingress rules unless overridden by route-specific annotations.
+Default settings for how cloudflared connects to backend services in the cluster. These apply to all ingress rules unless overridden by route-specific [annotations](annotations.md).
 
 **`caPoolSecretRef`:** Use this when your backend services present TLS certificates signed by a private CA. The Secret must contain the CA certificate chain in PEM format. Without this, connections to services using private CA certificates will fail TLS verification (unless `noTLSVerify` is set, which is not recommended for production).
 
@@ -190,9 +190,9 @@ spec:
 |-----------|-------------|
 | `Ready` | Tunnel is fully operational: credentials valid, tunnel exists, config synced, pods running. |
 | `CredentialsValid` | API credentials in the referenced Secret have been validated against the Cloudflare API. |
-| `TunnelCreated` | Tunnel exists in Cloudflare (either created or adopted). |
+| `TunnelReady` | Tunnel exists in Cloudflare (either created or adopted). |
 | `ConfigurationSynced` | Ingress configuration has been successfully synced to Cloudflare. |
-| `DeploymentReady` | Cloudflared pods are running and ready. |
+| `CloudflaredDeployed` | Cloudflared pods are running and ready. |
 
 ### kubectl Output Columns
 

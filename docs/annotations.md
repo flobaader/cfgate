@@ -184,7 +184,7 @@ Sets the DNS record TTL (Time To Live) in seconds. Value `1` is special and mean
 
 **Default:** `1` (auto)
 
-**Read by:** CloudflareDNS controller (via route hostname collection)
+**Read by:** CloudflareDNS controller (via route hostname collection). See [CloudflareDNS](cloudflare-dns.md#specdefaults) for default TTL configuration.
 
 ```yaml
 metadata:
@@ -202,7 +202,7 @@ Controls whether Cloudflare proxies traffic for the DNS record (the "orange clou
 
 **Default:** `true`
 
-**Read by:** CloudflareDNS controller (via route hostname collection)
+**Read by:** CloudflareDNS controller (via route hostname collection). See [CloudflareDNS](cloudflare-dns.md#specdefaults) for default proxy configuration.
 
 ```yaml
 metadata:
@@ -214,7 +214,7 @@ metadata:
 
 #### `cfgate.io/access-policy`
 
-References a CloudflareAccessPolicy resource to protect this route with Cloudflare Access zero-trust authentication.
+References a [CloudflareAccessPolicy](cloudflare-access-policy.md) resource to protect this route with Cloudflare Access zero-trust authentication.
 
 **Valid values:** `name` (same namespace) or `namespace/name`
 
@@ -280,7 +280,7 @@ Applied to Gateway resources to connect them to CloudflareTunnel resources.
 
 #### `cfgate.io/tunnel-ref`
 
-Connects a Gateway to a CloudflareTunnel resource. This annotation is the link between the Gateway API layer and cfgate's tunnel management.
+Connects a Gateway to a [CloudflareTunnel](cloudflare-tunnel.md) resource. This annotation is the link between the [Gateway API](gateway-api-primer.md) layer and cfgate's tunnel management.
 
 **Format:** `namespace/name` (recommended) or `name` (same namespace)
 
