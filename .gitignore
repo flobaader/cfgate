@@ -620,3 +620,6 @@ bin/
 
 # Kubebuilder envtest binaries
 testbin/
+
+# E2E test output
+out/
