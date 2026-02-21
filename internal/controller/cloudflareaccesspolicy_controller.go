@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -220,6 +220,16 @@ func (r *CloudflareAccessPolicyReconciler) reconcilePhases(ctx context.Context, 
 	hostnames, err := policyCtx.ExtractHostnames(ctx, r.Client)
 	if err != nil {
 		log.Error(err, "failed to extract hostnames")
+		if len(hostnames) == 0 && policy.Spec.Application.Domain == "" {
+			policy.Status.Conditions = status.MergeConditions(policy.Status.Conditions,
+				status.NewApplicationCreatedCondition(false, status.ReasonApplicationError,
+					status.Error2ConditionMsg(fmt.Errorf("failed to extract hostnames from targets: %w", err)), generation),
+			)
+			if statusErr := r.updateStatus(ctx, policy); statusErr != nil {
+				log.Error(statusErr, "failed to update status")
+			}
+			return ctrl.Result{RequeueAfter: accessPolicyRequeueAfterError}, nil
+		}
 	}
 	app, err := r.ensureApplication(ctx, accessService, accountID, policy, hostnames)
 	if err != nil {
@@ -391,18 +401,19 @@ func (r *CloudflareAccessPolicyReconciler) inheritCredentialsFromTunnel(
 				continue
 			}
 
-			tunnelRef, ok := gw.Annotations[annotations.AnnotationTunnelRef]
+			tunnelRefValue, ok := gw.Annotations[annotations.AnnotationTunnelRef]
 			if !ok {
 				continue
 			}
 
-			// Parse namespace/name
-			parts := strings.SplitN(tunnelRef, "/", 2)
-			var tunnelNS, tunnelName string
-			if len(parts) == 2 {
-				tunnelNS, tunnelName = parts[0], parts[1]
-			} else {
-				tunnelNS, tunnelName = gw.Namespace, parts[0]
+			tunnelNS, tunnelName, err := annotations.ParseNamespacedName(tunnelRefValue, gw.Namespace)
+			if err != nil {
+				log.V(1).Info("invalid tunnel-ref annotation on Gateway",
+					"gateway", namespace+"/"+ref.Name,
+					"tunnelRef", tunnelRefValue,
+					"error", err.Error(),
+				)
+				continue
 			}
 
 			var tunnel cfgatev1alpha1.CloudflareTunnel
@@ -460,17 +471,20 @@ func (r *CloudflareAccessPolicyReconciler) inheritCredentialsFromTunnel(
 				}
 
 				// Found cfgate Gateway — resolve tunnel credentials
-				tunnelRef, ok := gw.Annotations[annotations.AnnotationTunnelRef]
+				tunnelRefValue, ok := gw.Annotations[annotations.AnnotationTunnelRef]
 				if !ok {
 					continue
 				}
 
-				parts := strings.SplitN(tunnelRef, "/", 2)
-				var tunnelNS, tunnelName string
-				if len(parts) == 2 {
-					tunnelNS, tunnelName = parts[0], parts[1]
-				} else {
-					tunnelNS, tunnelName = gw.Namespace, parts[0]
+				tunnelNS, tunnelName, err := annotations.ParseNamespacedName(tunnelRefValue, gw.Namespace)
+				if err != nil {
+					log.V(1).Info("invalid tunnel-ref annotation on Gateway (via HTTPRoute)",
+						"httproute", namespace+"/"+ref.Name,
+						"gateway", gwNamespace+"/"+string(parentRef.Name),
+						"tunnelRef", tunnelRefValue,
+						"error", err.Error(),
+					)
+					continue
 				}
 
 				var tunnel cfgatev1alpha1.CloudflareTunnel
@@ -730,13 +744,23 @@ func (r *CloudflareAccessPolicyReconciler) syncPolicies(
 			precedence = *rule.Precedence
 		}
 
+		// Warn about unsupported ApprovalGroup fields
+		for _, ag := range rule.ApprovalGroups {
+			if ag.EmailDomain != "" {
+				log.Info("approvalGroup.emailDomain is not yet supported and will be ignored",
+					"policyName", rule.Name,
+					"emailDomain", ag.EmailDomain,
+				)
+			}
+		}
+
 		params = append(params, cloudflare.CreatePolicyParams{
 			Name:                         rule.Name,
 			Decision:                     rule.Decision,
 			Precedence:                   precedence,
-			Include:                      convertAccessRules(rule.Include),
-			Exclude:                      convertAccessRules(rule.Exclude),
-			Require:                      convertAccessRules(rule.Require),
+			Include:                      convertAccessRules(log, rule.Include),
+			Exclude:                      convertAccessRules(log, rule.Exclude),
+			Require:                      convertAccessRules(log, rule.Require),
 			SessionDuration:              rule.SessionDuration,
 			PurposeJustificationRequired: rule.PurposeJustificationRequired,
 			PurposeJustificationPrompt:   rule.PurposeJustificationPrompt,
@@ -759,7 +783,7 @@ func (r *CloudflareAccessPolicyReconciler) syncPolicies(
 //   - P1: Basic IdP (Email, EmailList, EmailDomain, OIDCClaim)
 //   - P2: Google Workspace (GSuiteGroup)
 //   - P3: Deferred to v0.2.0 (Certificate, Group, GitHub, Azure, Okta, SAML, etc.)
-func convertAccessRules(crdRules []cfgatev1alpha1.AccessRule) []cloudflare.AccessRuleParam {
+func convertAccessRules(log logr.Logger, crdRules []cfgatev1alpha1.AccessRule) []cloudflare.AccessRuleParam {
 	var rules []cloudflare.AccessRuleParam
 	for _, r := range crdRules {
 		// ============================================================
@@ -778,11 +802,17 @@ func convertAccessRules(crdRules []cfgatev1alpha1.AccessRule) []cloudflare.Acces
 		}
 
 		// IPList -> by ID (SDK: IPListRule)
-		if r.IPList != nil && r.IPList.ID != "" {
-			id := r.IPList.ID
-			rules = append(rules, cloudflare.AccessRuleParam{
-				IPListID: &id,
-			})
+		if r.IPList != nil {
+			if r.IPList.ID != "" {
+				id := r.IPList.ID
+				rules = append(rules, cloudflare.AccessRuleParam{
+					IPListID: &id,
+				})
+			} else if r.IPList.Name != "" {
+				log.Info("ipList.name lookup is not yet supported; use ipList.id instead",
+					"ipListName", r.IPList.Name,
+				)
+			}
 			continue
 		}
 
@@ -840,11 +870,17 @@ func convertAccessRules(crdRules []cfgatev1alpha1.AccessRule) []cloudflare.Acces
 		}
 
 		// EmailList -> by ID (SDK: EmailListRule)
-		if r.EmailList != nil && r.EmailList.ID != "" {
-			id := r.EmailList.ID
-			rules = append(rules, cloudflare.AccessRuleParam{
-				EmailListID: &id,
-			})
+		if r.EmailList != nil {
+			if r.EmailList.ID != "" {
+				id := r.EmailList.ID
+				rules = append(rules, cloudflare.AccessRuleParam{
+					EmailListID: &id,
+				})
+			} else if r.EmailList.Name != "" {
+				log.Info("emailList.name lookup is not yet supported; use emailList.id instead",
+					"emailListName", r.EmailList.Name,
+				)
+			}
 			continue
 		}
 

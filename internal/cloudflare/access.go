@@ -191,6 +191,9 @@ type UpdateApplicationParams struct {
 	// Domain is the protected domain.
 	Domain string
 
+	// Type is the application type (self_hosted, saas, ssh, vnc, etc.).
+	Type string
+
 	// SessionDuration is the session lifetime.
 	SessionDuration string
 
@@ -620,32 +623,25 @@ func (s *AccessService) EnsureApplication(ctx context.Context, accountID string,
 	}
 
 	if existing != nil {
+		// Warn if application type has drifted (cannot be changed via API)
+		desiredType := params.Type
+		if desiredType == "" {
+			desiredType = "self_hosted"
+		}
+		if existing.Type != desiredType {
+			s.log.Info("application type changed in CR but Cloudflare API does not support type updates; delete and recreate the application to change type",
+				"applicationId", existing.ID,
+				"existingType", existing.Type,
+				"desiredType", desiredType,
+			)
+		}
+
 		if accessApplicationNeedsUpdate(existing, &params) {
 			s.log.Info("access application drift detected, updating",
 				"applicationId", existing.ID,
 				"domain", existing.Domain,
 			)
-			updated, err := s.client.UpdateAccessApplication(ctx, accountID, existing.ID, UpdateApplicationParams{
-				Name:                        params.Name,
-				Domain:                      params.Domain,
-				SessionDuration:             params.SessionDuration,
-				AllowedIdps:                 params.AllowedIdps,
-				AutoRedirectToIdentity:      params.AutoRedirectToIdentity,
-				EnableBindingCookie:         params.EnableBindingCookie,
-				HttpOnlyCookieAttribute:     params.HttpOnlyCookieAttribute,
-				SameSiteCookieAttribute:     params.SameSiteCookieAttribute,
-				SkipInterstitial:            params.SkipInterstitial,
-				LogoURL:                     params.LogoURL,
-				AppLauncherVisible:          params.AppLauncherVisible,
-				CustomDenyMessage:           params.CustomDenyMessage,
-				CustomDenyURL:               params.CustomDenyURL,
-				CORSHeaders:                 params.CORSHeaders,
-				OptionsPreflightBypass:      params.OptionsPreflightBypass,
-				PathCookieAttribute:         params.PathCookieAttribute,
-				ServiceAuth401Redirect:      params.ServiceAuth401Redirect,
-				CustomNonIdentityDenyURL:    params.CustomNonIdentityDenyURL,
-				ReadServiceTokensFromHeader: params.ReadServiceTokensFromHeader,
-			})
+			updated, err := s.client.UpdateAccessApplication(ctx, accountID, existing.ID, UpdateApplicationParams(params))
 			if err != nil {
 				return nil, false, fmt.Errorf("failed to update application: %w", err)
 			}
@@ -675,11 +671,21 @@ func (s *AccessService) EnsureApplication(ctx context.Context, accountID string,
 
 // accessApplicationNeedsUpdate compares an existing application against desired params.
 // Returns true if any managed field has drifted and an update is needed.
+//
+// Note: Type is compared for drift detection but cannot be changed via the
+// Cloudflare API. The caller should emit a warning when Type has drifted.
 func accessApplicationNeedsUpdate(existing *AccessApplication, desired *CreateApplicationParams) bool {
 	if existing.Name != desired.Name {
 		return true
 	}
 	if existing.Domain != desired.Domain {
+		return true
+	}
+	desiredType := desired.Type
+	if desiredType == "" {
+		desiredType = "self_hosted"
+	}
+	if existing.Type != desiredType {
 		return true
 	}
 	desiredSession := desired.SessionDuration

@@ -176,13 +176,21 @@ func (r *CloudflareDNSReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	hostnames, err := r.collectHostnames(ctx, &dns, tunnel)
 	if err != nil {
 		logger.Error(err, "failed to collect hostnames")
+		r.setCondition(&dns, status.ConditionTypeReady, metav1.ConditionFalse, "HostnameCollectionFailed", err.Error())
+		if updateErr := r.updateStatus(ctx, &dns); updateErr != nil {
+			logger.Error(updateErr, "failed to update status")
+		}
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
 	// If gatewayRoutes is enabled but 0 hostnames found, this may indicate
 	// a timing gap where relevant Gateways/HTTPRoutes haven't stabilized yet.
 	// Short requeue to self-heal rather than proceeding with empty state.
-	if dns.Spec.Source.GatewayRoutes.Enabled && len(hostnames) == 0 && len(dns.Spec.Source.Explicit) == 0 {
+	// Only applies in tunnel-ref mode: in external target mode (tunnel == nil),
+	// gateway route discovery is structurally unavailable and 0 hostnames is
+	// permanent, not transient. Without this guard, external target mode with
+	// gatewayRoutes.enabled and no explicit hostnames would loop at 10s forever.
+	if tunnel != nil && dns.Spec.Source.GatewayRoutes.Enabled && len(hostnames) == 0 && len(dns.Spec.Source.Explicit) == 0 {
 		logger.Info("no hostnames discovered with gatewayRoutes enabled, requeueing",
 			"requeueAfter", "10s",
 		)
@@ -433,6 +441,11 @@ func (r *CloudflareDNSReconciler) resolveTarget(ctx context.Context, dns *cfgate
 
 	// 2. External target mode
 	if dns.Spec.ExternalTarget != nil {
+		if dns.Spec.ExternalTarget.Type != cfgatev1alpha1.RecordTypeCNAME {
+			log.FromContext(ctx).Info("externalTarget type not yet supported, records will be created as CNAME",
+				"configuredType", dns.Spec.ExternalTarget.Type,
+			)
+		}
 		return dns.Spec.ExternalTarget.Value, nil, nil
 	}
 
@@ -483,17 +496,22 @@ func (r *CloudflareDNSReconciler) collectHostnames(ctx context.Context, dns *cfg
 	return hostnames, nil
 }
 
-// collectHostnamesFromRoutes collects hostnames from HTTPRoutes.
-// Returns a map of hostname -> HostnameConfig with per-route annotation settings.
+// collectHostnamesFromRoutes collects hostnames from HTTPRoutes that reference
+// Gateways associated with the given tunnel. Returns a map of hostname to
+// HostnameConfig with per-route annotation settings.
 func (r *CloudflareDNSReconciler) collectHostnamesFromRoutes(ctx context.Context, dns *cfgatev1alpha1.CloudflareDNS, tunnel *cfgatev1alpha1.CloudflareTunnel) (map[string]HostnameConfig, error) {
+	logger := log.FromContext(ctx).WithName("controller").WithName("dns")
+
 	if tunnel == nil {
-		// External target mode - no tunnel to find gateways for
 		return nil, nil
+	}
+
+	if dns.Spec.Source.GatewayRoutes.NamespaceSelector != nil {
+		logger.Info("namespaceSelector is not yet implemented, routes from all namespaces will be included")
 	}
 
 	hostnames := make(map[string]HostnameConfig)
 
-	// Find Gateways that reference this tunnel
 	var gateways gateway.GatewayList
 	if err := r.APIReader.List(ctx, &gateways); err != nil {
 		return nil, fmt.Errorf("failed to list gateways: %w", err)
@@ -504,56 +522,54 @@ func (r *CloudflareDNSReconciler) collectHostnamesFromRoutes(ctx context.Context
 
 	for _, gw := range gateways.Items {
 		if ref, ok := gw.Annotations[annotations.AnnotationTunnelRef]; ok && ref == tunnelRef {
-			// Gateway references this tunnel - consider it relevant for route discovery.
-			// The AnnotationFilter on CloudflareDNS.Spec.Source.GatewayRoutes controls which routes are synced.
 			relevantGateways = append(relevantGateways, gw)
 		}
 	}
 
-	// For each Gateway, find HTTPRoutes
-	for _, gw := range relevantGateways {
-		var routes gateway.HTTPRouteList
-		if err := r.APIReader.List(ctx, &routes); err != nil {
-			return nil, fmt.Errorf("failed to list httproutes: %w", err)
-		}
+	if len(relevantGateways) == 0 {
+		return hostnames, nil
+	}
 
+	// List all HTTPRoutes once, then filter per gateway in memory
+	var routes gateway.HTTPRouteList
+	if err := r.APIReader.List(ctx, &routes); err != nil {
+		return nil, fmt.Errorf("failed to list httproutes: %w", err)
+	}
+
+	for _, gw := range relevantGateways {
 		for _, route := range routes.Items {
-			// Check annotation filter if specified
-			// Supports both "key" (presence check) and "key=value" (exact match) formats
 			if filter := dns.Spec.Source.GatewayRoutes.AnnotationFilter; filter != "" {
 				if parts := strings.SplitN(filter, "=", 2); len(parts) == 2 {
-					// key=value format: check key exists AND value matches
 					if val, ok := route.Annotations[parts[0]]; !ok || val != parts[1] {
 						continue
 					}
 				} else {
-					// key-only format: check key exists (any value)
 					if _, ok := route.Annotations[filter]; !ok {
 						continue
 					}
 				}
 			}
 
-			// Check if route references this gateway
 			for _, parentRef := range route.Spec.ParentRefs {
+				if !isGatewayParentRef(parentRef) {
+					continue
+				}
+
 				parentNS := route.Namespace
 				if parentRef.Namespace != nil {
 					parentNS = string(*parentRef.Namespace)
 				}
 
 				if string(parentRef.Name) == gw.Name && parentNS == gw.Namespace {
-					// Parse DNS config from route annotations
 					dnsConfig := annotations.ParseDNSConfig(&route)
 					config := HostnameConfig{
 						TTL: int32(dnsConfig.TTL),
 					}
-					// Only set Proxied if explicitly specified in annotation
 					if proxiedStr := annotations.GetAnnotation(&route, annotations.AnnotationCloudflareProxied); proxiedStr != "" {
 						proxied := dnsConfig.Proxied
 						config.Proxied = &proxied
 					}
 
-					// Collect hostnames from route with their config
 					for _, h := range route.Spec.Hostnames {
 						hostnames[string(h)] = config
 					}
@@ -563,6 +579,19 @@ func (r *CloudflareDNSReconciler) collectHostnamesFromRoutes(ctx context.Context
 	}
 
 	return hostnames, nil
+}
+
+// isGatewayParentRef returns true if the parentRef targets a Gateway resource.
+// Unset Group defaults to gateway.networking.k8s.io, unset Kind defaults to Gateway,
+// per Gateway API spec.
+func isGatewayParentRef(ref gateway.ParentReference) bool {
+	if ref.Group != nil && string(*ref.Group) != gateway.GroupName {
+		return false
+	}
+	if ref.Kind != nil && string(*ref.Kind) != "Gateway" {
+		return false
+	}
+	return true
 }
 
 // resolveZones resolves zone names to zone IDs.
@@ -661,8 +690,9 @@ func (r *CloudflareDNSReconciler) syncRecords(ctx context.Context, dns *cfgatev1
 			proxied = *hostnameConfig.Proxied
 		}
 
-		// Build desired record
-		comment := fmt.Sprintf("managed by cfgate, dns=%s/%s", dns.Namespace, dns.Name)
+		// Build desired record. The comment embeds ownerID for alpha.2 comment-based
+		// ownership checks so IsOwnedByCfgate can verify the specific owner.
+		comment := fmt.Sprintf("managed by cfgate, owner=%s, dns=%s/%s", ownerID, dns.Namespace, dns.Name)
 		desired := cloudflare.BuildCNAMERecord(hostname, target, proxied, int(ttl), comment)
 
 		// Sync record using policy

@@ -2,10 +2,13 @@ package cloudflare
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	cf "github.com/cloudflare/cloudflare-go/v6"
 	"github.com/cloudflare/cloudflare-go/v6/accounts"
@@ -108,9 +111,10 @@ func (c *clientImpl) GetTunnelByName(ctx context.Context, accountID, name string
 // CreateTunnel creates a new tunnel with the given name.
 // Uses config_src: "cloudflare" for remote management.
 func (c *clientImpl) CreateTunnel(ctx context.Context, accountID string, params CreateTunnelParams) (*Tunnel, error) {
-	// Generate a tunnel secret - base64 encoded random bytes
-	// The SDK expects the secret to be base64 encoded
-	tunnelSecret := generateTunnelSecret()
+	tunnelSecret, err := generateTunnelSecret()
+	if err != nil {
+		return nil, err
+	}
 
 	configSrc := zero_trust.TunnelCloudflaredNewParamsConfigSrcCloudflare
 	if params.ConfigSrc == "local" {
@@ -546,8 +550,7 @@ func ingressOriginRequestToAPI(config *OriginRequestConfig) zero_trust.TunnelClo
 	req := zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngressOriginRequest{}
 
 	if config.ConnectTimeout != "" {
-		// Parse duration to seconds if needed
-		req.ConnectTimeout = cf.F(int64(30)) // Default 30 seconds
+		req.ConnectTimeout = cf.F(parseDurationSeconds(config.ConnectTimeout, 30))
 	}
 	if config.NoHappyEyeballs {
 		req.NoHappyEyeballs = cf.F(true)
@@ -582,7 +585,7 @@ func globalOriginRequestToAPI(config *OriginRequestConfig) zero_trust.TunnelClou
 	req := zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigOriginRequest{}
 
 	if config.ConnectTimeout != "" {
-		req.ConnectTimeout = cf.F(int64(30)) // Default 30 seconds
+		req.ConnectTimeout = cf.F(parseDurationSeconds(config.ConnectTimeout, 30))
 	}
 	if config.NoHappyEyeballs {
 		req.NoHappyEyeballs = cf.F(true)
@@ -612,10 +615,15 @@ func globalOriginRequestToAPI(config *OriginRequestConfig) zero_trust.TunnelClou
 	return req
 }
 
-// generateTunnelSecret returns a placeholder tunnel secret.
-// The Cloudflare API generates the actual secret; this value satisfies the SDK requirement.
-func generateTunnelSecret() string {
-	return "Y2ZnYXRlLWdlbmVyYXRlZC1zZWNyZXQtdG9rZW4="
+// generateTunnelSecret generates a cryptographically random tunnel secret.
+// Returns 32 random bytes encoded as base64, as required by the Cloudflare API
+// for cloudflared connector authentication.
+func generateTunnelSecret() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate tunnel secret: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 // =============================================================================
@@ -707,9 +715,14 @@ func (c *clientImpl) UpdateAccessApplication(ctx context.Context, accountID, app
 		sameSite = "lax"
 	}
 
+	appType := zero_trust.ApplicationType(params.Type)
+	if params.Type == "" {
+		appType = zero_trust.ApplicationTypeSelfHosted
+	}
+
 	body := zero_trust.AccessApplicationUpdateParamsBodySelfHostedApplication{
 		Domain:                      cf.F(params.Domain),
-		Type:                        cf.F(zero_trust.ApplicationTypeSelfHosted),
+		Type:                        cf.F(appType),
 		Name:                        cf.F(params.Name),
 		SessionDuration:             cf.F(params.SessionDuration),
 		AllowedIdPs:                 cf.F(params.AllowedIdps),
@@ -1327,6 +1340,20 @@ func (c *clientImpl) UpdateMTLSCertificateSettings(ctx context.Context, accountI
 // SDK response conversion helpers
 // =============================================================================
 
+// parseDurationSeconds parses a Go duration string and returns the value in whole seconds.
+// Falls back to defaultSec if the string is not a valid duration.
+func parseDurationSeconds(s string, defaultSec int64) int64 {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return defaultSec
+	}
+	sec := int64(d.Seconds())
+	if sec <= 0 {
+		return defaultSec
+	}
+	return sec
+}
+
 // corsHeadersToSDK converts internal CORSHeadersParam to SDK CORSHeadersParam.
 func corsHeadersToSDK(h *CORSHeadersParam) zero_trust.CORSHeadersParam {
 	p := zero_trust.CORSHeadersParam{
@@ -1399,6 +1426,22 @@ func extractAllowedIdPs(v interface{}) []string {
 	default:
 		return nil
 	}
+}
+
+// approvalGroupsFromAPI converts SDK ApprovalGroup responses to internal ApprovalGroupParam.
+func approvalGroupsFromAPI(groups []zero_trust.ApprovalGroup) []ApprovalGroupParam {
+	if len(groups) == 0 {
+		return nil
+	}
+	result := make([]ApprovalGroupParam, len(groups))
+	for i, g := range groups {
+		result[i] = ApprovalGroupParam{
+			EmailAddresses:  g.EmailAddresses,
+			EmailListUUID:   g.EmailListUUID,
+			ApprovalsNeeded: int(g.ApprovalsNeeded),
+		}
+	}
+	return result
 }
 
 // applicationFromNewResponse converts AccessApplicationNewResponse to AccessApplication.
@@ -1597,6 +1640,7 @@ func policyFromNewResponse(resp *zero_trust.AccessApplicationPolicyNewResponse, 
 		PurposeJustificationRequired: resp.PurposeJustificationRequired,
 		PurposeJustificationPrompt:   resp.PurposeJustificationPrompt,
 		ApprovalRequired:             resp.ApprovalRequired,
+		ApprovalGroups:               approvalGroupsFromAPI(resp.ApprovalGroups),
 		CreatedAt:                    resp.CreatedAt,
 		UpdatedAt:                    resp.UpdatedAt,
 	}
@@ -1620,6 +1664,7 @@ func policyFromGetResponse(resp *zero_trust.AccessApplicationPolicyGetResponse) 
 		PurposeJustificationRequired: resp.PurposeJustificationRequired,
 		PurposeJustificationPrompt:   resp.PurposeJustificationPrompt,
 		ApprovalRequired:             resp.ApprovalRequired,
+		ApprovalGroups:               approvalGroupsFromAPI(resp.ApprovalGroups),
 		CreatedAt:                    resp.CreatedAt,
 		UpdatedAt:                    resp.UpdatedAt,
 	}
@@ -1643,6 +1688,7 @@ func policyFromUpdateResponse(resp *zero_trust.AccessApplicationPolicyUpdateResp
 		PurposeJustificationRequired: resp.PurposeJustificationRequired,
 		PurposeJustificationPrompt:   resp.PurposeJustificationPrompt,
 		ApprovalRequired:             resp.ApprovalRequired,
+		ApprovalGroups:               approvalGroupsFromAPI(resp.ApprovalGroups),
 		CreatedAt:                    resp.CreatedAt,
 		UpdatedAt:                    resp.UpdatedAt,
 	}
@@ -1666,6 +1712,7 @@ func policyFromListResponse(resp *zero_trust.AccessApplicationPolicyListResponse
 		PurposeJustificationRequired: resp.PurposeJustificationRequired,
 		PurposeJustificationPrompt:   resp.PurposeJustificationPrompt,
 		ApprovalRequired:             resp.ApprovalRequired,
+		ApprovalGroups:               approvalGroupsFromAPI(resp.ApprovalGroups),
 		CreatedAt:                    resp.CreatedAt,
 		UpdatedAt:                    resp.UpdatedAt,
 	}
@@ -1721,12 +1768,15 @@ func groupFromListResponse(resp *zero_trust.AccessGroupListResponse) *AccessGrou
 }
 
 // accessRulesFromAPI converts SDK AccessRule responses back to internal AccessRuleParam.
+// Returns nil when the input is empty or all rules are unrecognized types, so that
+// reflect.DeepEqual comparisons against nil slices from convertAccessRules do not
+// produce spurious drift.
 func accessRulesFromAPI(rules []zero_trust.AccessRule) []AccessRuleParam {
 	if len(rules) == 0 {
 		return nil
 	}
 
-	result := make([]AccessRuleParam, 0, len(rules))
+	var result []AccessRuleParam
 	for _, rule := range rules {
 		if param := accessRuleFromAPI(&rule); param != nil {
 			result = append(result, *param)

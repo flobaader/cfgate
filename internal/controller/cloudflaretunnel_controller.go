@@ -331,7 +331,10 @@ func (r *CloudflareTunnelReconciler) findTunnelsForHTTPRoute(ctx context.Context
 	// Find parent Gateways, then their tunnels
 	var requests []reconcile.Request
 	for _, parentRef := range route.Spec.ParentRefs {
-		// Get the Gateway
+		if !isGatewayParentRef(parentRef) {
+			continue
+		}
+
 		gwNamespace := route.Namespace
 		if parentRef.Namespace != nil {
 			gwNamespace = string(*parentRef.Namespace)
@@ -643,23 +646,25 @@ func (r *CloudflareTunnelReconciler) collectIngressRules(ctx context.Context, tu
 		}
 	}
 
-	// For each Gateway, find HTTPRoutes
-	for _, gw := range relevantGateways {
-		var routes gateway.HTTPRouteList
-		if err := r.List(ctx, &routes); err != nil {
-			return nil, 0, fmt.Errorf("failed to list httproutes: %w", err)
-		}
+	// Fetch HTTPRoutes once, then match against each relevant gateway.
+	var routes gateway.HTTPRouteList
+	if err := r.List(ctx, &routes); err != nil {
+		return nil, 0, fmt.Errorf("failed to list httproutes: %w", err)
+	}
 
+	for _, gw := range relevantGateways {
 		for _, route := range routes.Items {
-			// Check if route references this gateway
 			for _, parentRef := range route.Spec.ParentRefs {
+				if !isGatewayParentRef(parentRef) {
+					continue
+				}
+
 				parentNS := route.Namespace
 				if parentRef.Namespace != nil {
 					parentNS = string(*parentRef.Namespace)
 				}
 
 				if string(parentRef.Name) == gw.Name && parentNS == gw.Namespace {
-					// This route belongs to our gateway
 					routeRules := r.buildRulesFromHTTPRoute(&route)
 					rules = append(rules, routeRules...)
 					routeCount++
@@ -667,6 +672,20 @@ func (r *CloudflareTunnelReconciler) collectIngressRules(ctx context.Context, tu
 			}
 		}
 	}
+
+	// Sort rules by specificity for Cloudflare's first-match-wins evaluation.
+	// Within each hostname: path-bearing rules before path-less, longer paths first.
+	sort.SliceStable(rules, func(i, j int) bool {
+		if rules[i].Hostname != rules[j].Hostname {
+			return false
+		}
+		iHasPath := rules[i].Path != ""
+		jHasPath := rules[j].Path != ""
+		if iHasPath != jHasPath {
+			return iHasPath
+		}
+		return len(rules[i].Path) > len(rules[j].Path)
+	})
 
 	return rules, routeCount, nil
 }
@@ -693,8 +712,13 @@ func (r *CloudflareTunnelReconciler) buildRulesFromHTTPRoute(route *gateway.HTTP
 					servicePort = int32(*backend.Port)
 				}
 
-				service := fmt.Sprintf("http://%s.%s.svc.cluster.local:%d",
-					backend.Name, route.Namespace, servicePort)
+				protocol := annotations.GetAnnotation(route, annotations.AnnotationOriginProtocol)
+				if protocol != "https" {
+					protocol = "http"
+				}
+
+				service := fmt.Sprintf("%s://%s.%s.svc.cluster.local:%d",
+					protocol, backend.Name, route.Namespace, servicePort)
 
 				ingressRule := cloudflare.IngressRule{
 					Hostname: string(hostname),
@@ -1006,7 +1030,7 @@ func (r *CloudflareTunnelReconciler) setCondition(tunnel *cfgatev1alpha1.Cloudfl
 }
 
 // tunnelConfigHash produces a deterministic SHA-256 hex digest of a TunnelConfiguration.
-// Ingress rules are sorted by hostname then service before hashing so that
+// Ingress rules are sorted by (hostname, path, service) before hashing so that
 // rule collection order does not cause spurious config updates.
 func tunnelConfigHash(config cloudflare.TunnelConfiguration) string {
 	canonical := make([]cloudflare.IngressRule, len(config.Ingress))
@@ -1014,6 +1038,9 @@ func tunnelConfigHash(config cloudflare.TunnelConfiguration) string {
 	sort.Slice(canonical, func(i, j int) bool {
 		if canonical[i].Hostname != canonical[j].Hostname {
 			return canonical[i].Hostname < canonical[j].Hostname
+		}
+		if canonical[i].Path != canonical[j].Path {
+			return canonical[i].Path < canonical[j].Path
 		}
 		return canonical[i].Service < canonical[j].Service
 	})

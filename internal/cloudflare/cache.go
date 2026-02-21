@@ -83,7 +83,10 @@ func (c *CredentialCache) Set(secret *corev1.Secret, client Client) {
 
 // GetOrCreate retrieves a cached client or creates a new one using the provided function.
 // The createFn is only called if no valid cached entry exists.
+// Expired entries are cleaned up on each call to prevent unbounded growth.
 func (c *CredentialCache) GetOrCreate(ctx context.Context, secret *corev1.Secret, createFn func() (Client, error)) (Client, error) {
+	c.Cleanup()
+
 	// Try to get from cache first
 	if client := c.Get(secret); client != nil {
 		return client, nil

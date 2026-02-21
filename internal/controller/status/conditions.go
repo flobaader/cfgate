@@ -6,7 +6,6 @@ import (
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 const (
@@ -142,16 +141,16 @@ const (
 )
 
 // MergeConditions merges condition updates into an existing condition slice.
-// - Preserves LastTransitionTime when status unchanged
-// - Truncates messages to MaxConditionMessageLength
-// - Returns new slice (does not modify input)
+// When multiple updates share the same type, the last one wins.
+// Preserves LastTransitionTime when status is unchanged.
+// Truncates messages to MaxConditionMessageLength.
+// Returns a new slice (does not modify input).
 func MergeConditions(conditions []metav1.Condition, updates ...metav1.Condition) []metav1.Condition {
 	if len(updates) == 0 {
 		return conditions
 	}
 
 	now := metav1.NewTime(time.Now())
-	result := make([]metav1.Condition, 0, len(conditions)+len(updates))
 
 	// Index existing conditions by type
 	existing := make(map[string]metav1.Condition, len(conditions))
@@ -159,21 +158,30 @@ func MergeConditions(conditions []metav1.Condition, updates ...metav1.Condition)
 		existing[c.Type] = c
 	}
 
-	// Track which types we've processed
-	processed := make(map[string]bool, len(updates))
-
-	// Process updates
+	// Deduplicate updates by type (last wins), preserving order
+	deduped := make(map[string]int, len(updates))
+	var uniqueUpdates []metav1.Condition
 	for _, update := range updates {
+		if idx, seen := deduped[update.Type]; seen {
+			uniqueUpdates[idx] = update
+		} else {
+			deduped[update.Type] = len(uniqueUpdates)
+			uniqueUpdates = append(uniqueUpdates, update)
+		}
+	}
+
+	result := make([]metav1.Condition, 0, len(conditions)+len(uniqueUpdates))
+
+	// Process deduplicated updates
+	for _, update := range uniqueUpdates {
 		update.Message = truncateConditionMessage(update.Message)
 
 		if prev, found := existing[update.Type]; found {
-			// Preserve LastTransitionTime if status unchanged
 			if prev.Status == update.Status {
 				update.LastTransitionTime = prev.LastTransitionTime
 			} else {
 				update.LastTransitionTime = now
 			}
-			// Preserve ObservedGeneration if not explicitly set
 			if update.ObservedGeneration == 0 {
 				update.ObservedGeneration = prev.ObservedGeneration
 			}
@@ -182,12 +190,11 @@ func MergeConditions(conditions []metav1.Condition, updates ...metav1.Condition)
 		}
 
 		result = append(result, update)
-		processed[update.Type] = true
 	}
 
 	// Keep unprocessed existing conditions
 	for _, c := range conditions {
-		if !processed[c.Type] {
+		if _, updated := deduped[c.Type]; !updated {
 			result = append(result, c)
 		}
 	}
@@ -507,75 +514,6 @@ func NewPolicyAcceptedCondition(accepted bool, reason, message string, generatio
 		status = metav1.ConditionTrue
 	}
 	return NewCondition(PolicyConditionAccepted, status, reason, message, generation)
-}
-
-// --- Gateway API PolicyStatus Helpers ---
-
-// NewPolicyAncestorStatus creates a PolicyAncestorStatus for a target reference.
-func NewPolicyAncestorStatus(
-	ancestorRef gwapiv1.ParentReference,
-	controllerName gwapiv1.GatewayController,
-	conditions []metav1.Condition,
-) gwapiv1.PolicyAncestorStatus {
-	return gwapiv1.PolicyAncestorStatus{
-		AncestorRef:    ancestorRef,
-		ControllerName: controllerName,
-		Conditions:     conditions,
-	}
-}
-
-// SetPolicyAncestorStatus sets or updates an ancestor status in PolicyStatus.
-func SetPolicyAncestorStatus(
-	status *gwapiv1.PolicyStatus,
-	ancestorStatus gwapiv1.PolicyAncestorStatus,
-) {
-	if status == nil {
-		return
-	}
-
-	// Find existing ancestor status
-	for i, existing := range status.Ancestors {
-		if ancestorRefEqual(existing.AncestorRef, ancestorStatus.AncestorRef) &&
-			existing.ControllerName == ancestorStatus.ControllerName {
-			status.Ancestors[i] = ancestorStatus
-			return
-		}
-	}
-
-	// Not found, append
-	status.Ancestors = append(status.Ancestors, ancestorStatus)
-}
-
-// ancestorRefEqual compares two ParentReferences for equality.
-func ancestorRefEqual(a, b gwapiv1.ParentReference) bool {
-	// Compare Group (default: gateway.networking.k8s.io)
-	aGroup := gwapiv1.GroupName
-	if a.Group != nil {
-		aGroup = string(*a.Group)
-	}
-	bGroup := gwapiv1.GroupName
-	if b.Group != nil {
-		bGroup = string(*b.Group)
-	}
-	if aGroup != bGroup {
-		return false
-	}
-
-	// Compare Kind (default: Gateway)
-	aKind := "Gateway"
-	if a.Kind != nil {
-		aKind = string(*a.Kind)
-	}
-	bKind := "Gateway"
-	if b.Kind != nil {
-		bKind = string(*b.Kind)
-	}
-	if aKind != bKind {
-		return false
-	}
-
-	// Compare Name
-	return a.Name == b.Name
 }
 
 // --- Logging Patterns ---

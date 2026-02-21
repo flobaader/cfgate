@@ -35,7 +35,7 @@ type Builder interface {
 
 	// BuildConfigMap creates a ConfigMap for cloudflared configuration.
 	// This is used when running with a config file instead of remote config.
-	BuildConfigMap(tunnel *cfgatev1alpha1.CloudflareTunnel, config *TunnelConfig) *corev1.ConfigMap
+	BuildConfigMap(tunnel *cfgatev1alpha1.CloudflareTunnel, config *TunnelConfig) (*corev1.ConfigMap, error)
 
 	// BuildTokenSecret creates a Secret containing the tunnel token.
 	BuildTokenSecret(tunnel *cfgatev1alpha1.CloudflareTunnel, token string) *corev1.Secret
@@ -116,8 +116,11 @@ func (b *DefaultBuilder) BuildDeployment(tunnel *cfgatev1alpha1.CloudflareTunnel
 
 // BuildConfigMap creates a ConfigMap for cloudflared configuration.
 // This is used when running with a config file instead of remote config.
-func (b *DefaultBuilder) BuildConfigMap(tunnel *cfgatev1alpha1.CloudflareTunnel, config *TunnelConfig) *corev1.ConfigMap {
-	configData, _ := config.Marshal()
+func (b *DefaultBuilder) BuildConfigMap(tunnel *cfgatev1alpha1.CloudflareTunnel, config *TunnelConfig) (*corev1.ConfigMap, error) {
+	configData, err := config.Marshal()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal tunnel config: %w", err)
+	}
 
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -128,7 +131,7 @@ func (b *DefaultBuilder) BuildConfigMap(tunnel *cfgatev1alpha1.CloudflareTunnel,
 		Data: map[string]string{
 			"config.yaml": string(configData),
 		},
-	}
+	}, nil
 }
 
 // BuildTokenSecret creates a Secret containing the tunnel token.

@@ -10,6 +10,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -19,7 +20,9 @@ import (
 	gwapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	cfgatev1alpha1 "cfgate.io/cfgate/api/v1alpha1"
+	cfcloudflare "cfgate.io/cfgate/internal/cloudflare"
 	"cfgate.io/cfgate/internal/controller"
+	"cfgate.io/cfgate/internal/controller/features"
 )
 
 var (
@@ -44,7 +47,6 @@ func init() {
 	viper.AutomaticEnv()
 	viper.SetDefault("metrics.port", 8080)
 	viper.SetDefault("health.port", 8081)
-	viper.SetDefault("sync.period", "5m")
 }
 
 func main() {
@@ -52,7 +54,6 @@ func main() {
 	var probeAddr string
 	var enableLeaderElection bool
 	var secureMetrics bool
-	var enableHTTP2 bool
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address",
 		fmt.Sprintf(":%d", viper.GetInt("metrics.port")),
@@ -65,10 +66,8 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&secureMetrics, "metrics-secure", false,
 		"If set, the metrics endpoint is served securely via HTTPS.")
-	flag.BoolVar(&enableHTTP2, "enable-http2", false,
-		"If set, HTTP/2 will be enabled for the metrics and webhook servers.")
 	opts := zap.Options{
-		Development: true,
+		Development: false,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -84,7 +83,6 @@ func main() {
 		"healthProbeAddr", probeAddr,
 		"leaderElection", enableLeaderElection,
 		"secureMetrics", secureMetrics,
-		"http2Enabled", enableHTTP2,
 	)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -102,19 +100,37 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Detect optional Gateway API CRDs for conditional controller behavior.
+	dc, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "unable to create discovery client")
+		os.Exit(1)
+	}
+	featureGates, err := features.DetectFeatures(dc)
+	if err != nil {
+		setupLog.Error(err, "unable to detect feature gates")
+		os.Exit(1)
+	}
+	featureGates.LogFeatures(setupLog)
+
+	// Shared credential cache for all Cloudflare-facing reconcilers.
+	credCache := cfcloudflare.NewCredentialCache(0) // 0 = default TTL
+
 	if err = (&controller.CloudflareTunnelReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("cloudflaretunnel-controller"),
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		Recorder:        mgr.GetEventRecorder("cloudflaretunnel-controller"),
+		CredentialCache: credCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CloudflareTunnel")
 		os.Exit(1)
 	}
 
 	if err = (&controller.CloudflareDNSReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("cloudflaredns-controller"),
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		Recorder:        mgr.GetEventRecorder("cloudflaredns-controller"),
+		CredentialCache: credCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CloudflareDNS")
 		os.Exit(1)
@@ -147,9 +163,11 @@ func main() {
 	}
 
 	if err = (&controller.CloudflareAccessPolicyReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorder("cloudflareaccesspolicy-controller"),
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		Recorder:        mgr.GetEventRecorder("cloudflareaccesspolicy-controller"),
+		FeatureGates:    featureGates,
+		CredentialCache: credCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CloudflareAccessPolicy")
 		os.Exit(1)

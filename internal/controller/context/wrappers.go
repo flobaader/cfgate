@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -218,10 +217,11 @@ func (dc *DNSContext) GetZoneID(zoneName string) string {
 }
 
 // ZoneForHostname returns the matching zone for a hostname.
-// Uses suffix matching against configured zones.
+// Matches at DNS label boundaries: "app.example.com" matches zone "example.com"
+// but "badexample.com" does not.
 func (dc *DNSContext) ZoneForHostname(hostname string) (string, bool) {
 	for _, zone := range dc.Spec.Zones {
-		if strings.HasSuffix(hostname, zone.Name) || hostname == zone.Name {
+		if hostname == zone.Name || strings.HasSuffix(hostname, "."+zone.Name) {
 			return zone.Name, true
 		}
 	}
@@ -556,177 +556,6 @@ func (ti *TargetInfo) IsGRPCRoute() bool {
 }
 
 // -----------------------------------------------------------------------------
-// RouteContext
-// -----------------------------------------------------------------------------
-
-// RouteContext wraps any route type with attached policies and computed state.
-type RouteContext struct {
-	// Kind of route (HTTPRoute, TCPRoute, UDPRoute, GRPCRoute)
-	Kind string
-
-	// Route is the underlying route object (use type switch to access)
-	Route client.Object
-
-	// Namespace and Name for convenience
-	Namespace string
-	Name      string
-
-	// Computed fields
-	attachedPolicies []PolicyRef
-	originConfig     *OriginConfig
-
-	// Logger for this context
-	log logr.Logger
-}
-
-// PolicyRef identifies an attached policy.
-type PolicyRef struct {
-	Namespace string
-	Name      string
-	Kind      string // CloudflareAccessPolicy, etc.
-}
-
-// OriginConfig holds parsed origin annotations.
-type OriginConfig struct {
-	Protocol  string        // http, https, tcp, udp
-	SSLVerify bool          // whether to verify TLS certificates
-	Timeout   time.Duration // connection timeout
-	Hostname  string        // For TCPRoute/UDPRoute (from annotation)
-}
-
-// NewRouteContext creates a RouteContext for any route type.
-func NewRouteContext(route client.Object) *RouteContext {
-	kind := route.GetObjectKind().GroupVersionKind().Kind
-	// Handle case where GVK isn't set (common with typed objects)
-	if kind == "" {
-		kind = inferRouteKind(route)
-	}
-	namespace := route.GetNamespace()
-	name := route.GetName()
-
-	log := ctrl.Log.WithName("context").WithName("route").
-		WithValues("kind", kind, "route", namespace+"/"+name)
-
-	rc := &RouteContext{
-		Kind:      kind,
-		Route:     route,
-		Namespace: namespace,
-		Name:      name,
-		log:       log,
-	}
-
-	// Parse origin annotations
-	rc.originConfig = parseOriginConfig(route.GetAnnotations())
-	log.V(1).Info("parsed origin config",
-		"protocol", rc.originConfig.Protocol,
-		"sslVerify", rc.originConfig.SSLVerify,
-	)
-
-	return rc
-}
-
-// inferRouteKind infers the route kind from the concrete type.
-func inferRouteKind(route client.Object) string {
-	switch route.(type) {
-	case *gwapiv1.HTTPRoute:
-		return "HTTPRoute"
-	case *gwapiv1a2.TCPRoute:
-		return "TCPRoute"
-	case *gwapiv1a2.UDPRoute:
-		return "UDPRoute"
-	case *gwapiv1.GRPCRoute:
-		return "GRPCRoute"
-	default:
-		return "Unknown"
-	}
-}
-
-// parseOriginConfig extracts origin settings from annotations.
-func parseOriginConfig(annotations map[string]string) *OriginConfig {
-	config := &OriginConfig{
-		Protocol:  "http",           // default
-		SSLVerify: true,             // default
-		Timeout:   30 * time.Second, // default
-	}
-
-	if v, ok := annotations["cfgate.io/origin-protocol"]; ok {
-		config.Protocol = v
-	}
-	if v, ok := annotations["cfgate.io/origin-ssl-verify"]; ok {
-		config.SSLVerify = v == "true"
-	}
-	if v, ok := annotations["cfgate.io/origin-timeout"]; ok {
-		if d, err := time.ParseDuration(v); err == nil {
-			config.Timeout = d
-		}
-	}
-	if v, ok := annotations["cfgate.io/hostname"]; ok {
-		config.Hostname = v
-	}
-
-	return config
-}
-
-// AttachedPolicies returns policies attached to this route.
-func (rc *RouteContext) AttachedPolicies() []PolicyRef {
-	return rc.attachedPolicies
-}
-
-// AddAttachedPolicy adds a policy reference.
-func (rc *RouteContext) AddAttachedPolicy(ref PolicyRef) {
-	rc.attachedPolicies = append(rc.attachedPolicies, ref)
-}
-
-// OriginConfig returns parsed origin configuration.
-func (rc *RouteContext) OriginConfig() *OriginConfig {
-	return rc.originConfig
-}
-
-// GetHostnames extracts hostnames from the route.
-// Returns annotation hostname for TCP/UDP routes, spec.hostnames for HTTP/GRPC.
-func (rc *RouteContext) GetHostnames() []string {
-	switch rc.Kind {
-	case "TCPRoute", "UDPRoute":
-		// TCP/UDP routes use annotation for hostname
-		if rc.originConfig.Hostname != "" {
-			return []string{rc.originConfig.Hostname}
-		}
-		return nil
-
-	case "HTTPRoute":
-		if hr, ok := rc.Route.(*gwapiv1.HTTPRoute); ok {
-			hostnames := make([]string, len(hr.Spec.Hostnames))
-			for i, h := range hr.Spec.Hostnames {
-				hostnames[i] = string(h)
-			}
-			return hostnames
-		}
-
-	case "GRPCRoute":
-		if gr, ok := rc.Route.(*gwapiv1.GRPCRoute); ok {
-			hostnames := make([]string, len(gr.Spec.Hostnames))
-			for i, h := range gr.Spec.Hostnames {
-				hostnames[i] = string(h)
-			}
-			return hostnames
-		}
-	}
-
-	return nil
-}
-
-// HasAccessPolicyAnnotation returns true if access-policy annotation is set.
-func (rc *RouteContext) HasAccessPolicyAnnotation() bool {
-	_, ok := rc.Route.GetAnnotations()["cfgate.io/access-policy"]
-	return ok
-}
-
-// GetAccessPolicyAnnotation returns the access-policy annotation value.
-func (rc *RouteContext) GetAccessPolicyAnnotation() string {
-	return rc.Route.GetAnnotations()["cfgate.io/access-policy"]
-}
-
-// -----------------------------------------------------------------------------
 // Builder Functions
 // -----------------------------------------------------------------------------
 
@@ -800,50 +629,6 @@ func BuildAccessPolicyContext(
 
 	// Build context
 	return NewAccessPolicyContext(ctx, &policy, k8sClient), nil
-}
-
-// BuildRouteContext creates a RouteContext for any route type.
-func BuildRouteContext(
-	ctx context.Context,
-	k8sClient client.Client,
-	kind string,
-	ref types.NamespacedName,
-) (*RouteContext, error) {
-	log := ctrl.Log.WithName("context").WithValues("kind", kind, "route", ref)
-
-	var route client.Object
-	var err error
-
-	switch kind {
-	case "HTTPRoute":
-		hr := &gwapiv1.HTTPRoute{}
-		err = k8sClient.Get(ctx, ref, hr)
-		route = hr
-	case "TCPRoute":
-		tr := &gwapiv1a2.TCPRoute{}
-		err = k8sClient.Get(ctx, ref, tr)
-		route = tr
-	case "UDPRoute":
-		ur := &gwapiv1a2.UDPRoute{}
-		err = k8sClient.Get(ctx, ref, ur)
-		route = ur
-	case "GRPCRoute":
-		gr := &gwapiv1.GRPCRoute{}
-		err = k8sClient.Get(ctx, ref, gr)
-		route = gr
-	default:
-		return nil, fmt.Errorf("unsupported route kind: %s", kind)
-	}
-
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			log.V(1).Info("route not found")
-			return nil, nil
-		}
-		return nil, fmt.Errorf("fetching route: %w", err)
-	}
-
-	return NewRouteContext(route), nil
 }
 
 // -----------------------------------------------------------------------------

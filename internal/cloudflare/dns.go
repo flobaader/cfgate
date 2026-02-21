@@ -202,6 +202,11 @@ func (s *DNSService) SyncRecordWithPolicy(ctx context.Context, zoneID string, de
 		return existing, false, nil
 	}
 
+	if ownerID != "" && isLegacyCommentOwnership(existing) {
+		s.log.V(1).Info("record matched via legacy comment ownership, consider enabling TXT ownership for multi-cluster safety",
+			"name", existing.Name, "type", existing.Type)
+	}
+
 	if recordsMatch(existing, &desired) {
 		return existing, false, nil
 	}
@@ -443,25 +448,50 @@ func BuildOwnershipTXTRecord(hostname, ownerID, resource, prefix string) DNSReco
 }
 
 // IsOwnedByCfgate checks if a DNS record is managed by cfgate.
+// Checks alpha.3 TXT ownership format first (heritage=cfgate in Content with ownerID
+// verification), then falls back to alpha.2 comment-based detection. The alpha.2
+// fallback does not verify ownerID; enable TXT ownership records for multi-cluster safety.
 func IsOwnedByCfgate(record *DNSRecord, ownerID string) bool {
 	if record == nil {
 		return false
 	}
 
-	// Alpha.3 format: heritage=cfgate
+	// Alpha.3 format: heritage=cfgate (used in TXT ownership records)
 	if strings.HasPrefix(record.Content, "heritage=cfgate") {
 		if ownerID == "" {
-			return true // Any cfgate instance
+			return true
 		}
 		return strings.Contains(record.Content, fmt.Sprintf("cfgate/owner=%s", ownerID))
 	}
 
-	// Alpha.2 backward compatibility: comment-based
+	// Comment-based ownership. Records created by alpha.13+ include "owner=<id>"
+	// in the comment, enabling multi-cluster ownership verification. Pre-alpha.13
+	// records lack the owner field and match any cfgate installation.
 	if strings.Contains(record.Comment, "managed by cfgate") {
+		if ownerID != "" {
+			if idx := strings.Index(record.Comment, "owner="); idx != -1 {
+				val := record.Comment[idx+len("owner="):]
+				if end := strings.Index(val, ","); end != -1 {
+					val = val[:end]
+				}
+				return val == ownerID
+			}
+		}
 		return true
 	}
 
 	return false
+}
+
+// isLegacyCommentOwnership returns true if the record uses pre-alpha.13 comment
+// ownership that lacks owner-aware matching (no "owner=" field in the comment).
+func isLegacyCommentOwnership(record *DNSRecord) bool {
+	if record == nil {
+		return false
+	}
+	return !strings.HasPrefix(record.Content, "heritage=cfgate") &&
+		strings.Contains(record.Comment, "managed by cfgate") &&
+		!strings.Contains(record.Comment, "owner=")
 }
 
 // ParseOwnershipRecord parses ownership metadata from TXT record content.
