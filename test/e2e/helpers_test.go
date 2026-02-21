@@ -334,6 +334,7 @@ type CloudflareDNSRecordInfo struct {
 	Content string
 	Proxied bool
 	TTL     float64
+	Comment string
 }
 
 // getDNSRecordFromCloudflare fetches a DNS record from Cloudflare.
@@ -356,6 +357,7 @@ func getDNSRecordFromCloudflare(ctx context.Context, cfClient *cloudflare.Client
 				Content: record.Content,
 				Proxied: record.Proxied,
 				TTL:     float64(record.TTL),
+				Comment: record.Comment,
 			}, nil
 		}
 	}

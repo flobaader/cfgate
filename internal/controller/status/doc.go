@@ -76,13 +76,6 @@
 //	NewServiceTokensReadyCondition(ready bool, reason, message string, generation int64)
 //	NewAccessPolicyReadyCondition(conditions []metav1.Condition, hasServiceTokens bool, generation int64)
 //
-// # Gateway API PolicyStatus
-//
-// For CloudflareAccessPolicy which uses Gateway API PolicyStatus pattern:
-//
-//	ancestorStatus := status.NewPolicyAncestorStatus(ancestorRef, controllerName, conditions)
-//	status.SetPolicyAncestorStatus(&policy.Status.PolicyStatus, ancestorStatus)
-//
 // # Logging
 //
 // The package provides logging helpers for condition changes:

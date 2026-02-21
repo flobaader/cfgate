@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -23,6 +22,7 @@ import (
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	cfgatev1alpha1 "cfgate.io/cfgate/api/v1alpha1"
+	"cfgate.io/cfgate/internal/controller/status"
 	"cfgate.io/cfgate/internal/controller/annotations"
 )
 
@@ -89,7 +89,13 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	tunnelRef := annotations.GetAnnotation(&gateway, annotations.AnnotationTunnelRef)
 	if tunnelRef == "" {
 		log.V(1).Info("Gateway has no tunnel reference annotation")
-		r.setGatewayCondition(&gateway, gwapiv1.GatewayConditionAccepted, metav1.ConditionFalse, "MissingTunnelRef", "cfgate.io/tunnel-ref annotation is required")
+		meta.SetStatusCondition(&gateway.Status.Conditions, metav1.Condition{
+			Type:               string(gwapiv1.GatewayConditionAccepted),
+			Status:             metav1.ConditionFalse,
+			Reason:             status.ReasonMissingTunnelRef,
+			Message:            "cfgate.io/tunnel-ref annotation is required",
+			ObservedGeneration: gateway.Generation,
+		})
 		if err := r.Status().Update(ctx, &gateway); err != nil {
 			log.Error(err, "failed to update gateway status")
 		}
@@ -100,7 +106,13 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	tunnel, err := r.resolveTunnelRef(ctx, &gateway)
 	if err != nil {
 		log.Error(err, "failed to resolve tunnel reference", "ref", tunnelRef)
-		r.setGatewayCondition(&gateway, gwapiv1.GatewayConditionAccepted, metav1.ConditionFalse, "TunnelNotFound", err.Error())
+		meta.SetStatusCondition(&gateway.Status.Conditions, metav1.Condition{
+			Type:               string(gwapiv1.GatewayConditionAccepted),
+			Status:             metav1.ConditionFalse,
+			Reason:             status.ReasonTunnelNotFound,
+			Message:            err.Error(),
+			ObservedGeneration: gateway.Generation,
+		})
 		if err := r.Status().Update(ctx, &gateway); err != nil {
 			log.Error(err, "failed to update gateway status")
 		}
@@ -122,6 +134,8 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 //
 // Watched resources:
 //   - Gateway (primary resource, with GenerationChangedPredicate)
+//   - CloudflareTunnel (with TunnelIDChangedPredicate, triggers status update when tunnel becomes ready)
+//   - HTTPRoute (with GenerationChangedPredicate, triggers attachedRoutes recount on route changes)
 //
 // The controller only processes Gateways whose GatewayClass specifies
 // cfgate.io/cloudflare-tunnel-controller as the controller name.
@@ -138,6 +152,11 @@ func (r *GatewayReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&cfgatev1alpha1.CloudflareTunnel{},
 			handler.EnqueueRequestsFromMapFunc(r.findGatewaysForTunnel),
 			builder.WithPredicates(TunnelIDChangedPredicate),
+		).
+		Watches(
+			&gwapiv1.HTTPRoute{},
+			handler.EnqueueRequestsFromMapFunc(r.findGatewaysForHTTPRoute),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
 		).
 		Complete(r)
 }
@@ -165,13 +184,10 @@ func (r *GatewayReconciler) resolveTunnelRef(ctx context.Context, gateway *gwapi
 		return nil, fmt.Errorf("missing %s annotation", annotations.AnnotationTunnelRef)
 	}
 
-	parts := strings.Split(tunnelRef, "/")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid tunnel reference format: expected 'namespace/name', got %q", tunnelRef)
+	namespace, name, err := annotations.ParseNamespacedName(tunnelRef, gateway.Namespace)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tunnel reference %q: %w", tunnelRef, err)
 	}
-
-	namespace := parts[0]
-	name := parts[1]
 
 	var tunnel cfgatev1alpha1.CloudflareTunnel
 	if err := r.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &tunnel); err != nil {
@@ -200,11 +216,35 @@ func (r *GatewayReconciler) updateGatewayStatus(ctx context.Context, gateway *gw
 
 	// Set conditions
 	if tunnel.Status.TunnelID != "" {
-		r.setGatewayCondition(gateway, gwapiv1.GatewayConditionAccepted, metav1.ConditionTrue, "TunnelReady", "Gateway is bound to tunnel")
-		r.setGatewayCondition(gateway, gwapiv1.GatewayConditionProgrammed, metav1.ConditionTrue, "Programmed", "Gateway configuration applied")
+		meta.SetStatusCondition(&gateway.Status.Conditions, metav1.Condition{
+			Type:               string(gwapiv1.GatewayConditionAccepted),
+			Status:             metav1.ConditionTrue,
+			Reason:             status.ReasonTunnelReady,
+			Message:            "Gateway is bound to tunnel",
+			ObservedGeneration: gateway.Generation,
+		})
+		meta.SetStatusCondition(&gateway.Status.Conditions, metav1.Condition{
+			Type:               string(gwapiv1.GatewayConditionProgrammed),
+			Status:             metav1.ConditionTrue,
+			Reason:             "Programmed",
+			Message:            "Gateway configuration applied",
+			ObservedGeneration: gateway.Generation,
+		})
 	} else {
-		r.setGatewayCondition(gateway, gwapiv1.GatewayConditionAccepted, metav1.ConditionTrue, "TunnelPending", "Waiting for tunnel to be ready")
-		r.setGatewayCondition(gateway, gwapiv1.GatewayConditionProgrammed, metav1.ConditionFalse, "TunnelNotReady", "Tunnel is not ready")
+		meta.SetStatusCondition(&gateway.Status.Conditions, metav1.Condition{
+			Type:               string(gwapiv1.GatewayConditionAccepted),
+			Status:             metav1.ConditionTrue,
+			Reason:             status.ReasonTunnelPending,
+			Message:            "Waiting for tunnel to be ready",
+			ObservedGeneration: gateway.Generation,
+		})
+		meta.SetStatusCondition(&gateway.Status.Conditions, metav1.Condition{
+			Type:               string(gwapiv1.GatewayConditionProgrammed),
+			Status:             metav1.ConditionFalse,
+			Reason:             status.ReasonTunnelNotReady,
+			Message:            "Tunnel is not ready",
+			ObservedGeneration: gateway.Generation,
+		})
 	}
 
 	// Update listener status
@@ -245,14 +285,24 @@ func (r *GatewayReconciler) updateGatewayStatus(ctx context.Context, gateway *gw
 // countAttachedRoutes counts the number of HTTPRoutes attached to a Gateway listener.
 // It matches routes by parentRef name/namespace and optionally by sectionName.
 func (r *GatewayReconciler) countAttachedRoutes(ctx context.Context, gateway *gwapiv1.Gateway, listener gwapiv1.Listener) int32 {
+	log := log.FromContext(ctx)
 	var routes gwapiv1.HTTPRouteList
 	if err := r.List(ctx, &routes); err != nil {
+		log.Error(err, "failed to list HTTPRoutes for attached route count")
 		return 0
 	}
 
 	var count int32
 	for _, route := range routes.Items {
 		for _, parentRef := range route.Spec.ParentRefs {
+			// Skip non-Gateway parentRefs (consistent with findGatewaysForHTTPRoute guard)
+			if parentRef.Group != nil && string(*parentRef.Group) != gwapiv1.GroupName {
+				continue
+			}
+			if parentRef.Kind != nil && string(*parentRef.Kind) != "Gateway" {
+				continue
+			}
+
 			parentNS := route.Namespace
 			if parentRef.Namespace != nil {
 				parentNS = string(*parentRef.Namespace)
@@ -271,32 +321,6 @@ func (r *GatewayReconciler) countAttachedRoutes(ctx context.Context, gateway *gw
 	return count
 }
 
-// setGatewayCondition sets or updates a condition on the Gateway status.
-// It finds an existing condition by type and replaces it, or appends a new one.
-func (r *GatewayReconciler) setGatewayCondition(gateway *gwapiv1.Gateway, conditionType gwapiv1.GatewayConditionType, status metav1.ConditionStatus, reason, message string) {
-	condition := metav1.Condition{
-		Type:               string(conditionType),
-		Status:             status,
-		Reason:             reason,
-		Message:            message,
-		LastTransitionTime: metav1.Now(),
-		ObservedGeneration: gateway.Generation,
-	}
-
-	// Find and update or append
-	found := false
-	for i, c := range gateway.Status.Conditions {
-		if c.Type == string(conditionType) {
-			gateway.Status.Conditions[i] = condition
-			found = true
-			break
-		}
-	}
-	if !found {
-		gateway.Status.Conditions = append(gateway.Status.Conditions, condition)
-	}
-}
-
 // ptrTo returns a pointer to the given value. Generic helper for Gateway API types
 // that require pointers for optional fields.
 func ptrTo[T any](v T) *T {
@@ -312,8 +336,6 @@ func (r *GatewayReconciler) findGatewaysForTunnel(ctx context.Context, obj clien
 		return nil
 	}
 
-	tunnelRef := fmt.Sprintf("%s/%s", tunnel.Namespace, tunnel.Name)
-
 	var gateways gwapiv1.GatewayList
 	if err := r.List(ctx, &gateways); err != nil {
 		return nil
@@ -321,7 +343,16 @@ func (r *GatewayReconciler) findGatewaysForTunnel(ctx context.Context, obj clien
 
 	var requests []reconcile.Request
 	for _, gw := range gateways.Items {
-		if gw.Annotations[annotations.AnnotationTunnelRef] == tunnelRef {
+		ref := annotations.GetAnnotation(&gw, annotations.AnnotationTunnelRef)
+		if ref == "" {
+			continue
+		}
+		// Parse annotation to handle both "name" and "namespace/name" formats
+		ns, name, err := annotations.ParseNamespacedName(ref, gw.Namespace)
+		if err != nil {
+			continue
+		}
+		if name == tunnel.Name && ns == tunnel.Namespace {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Namespace: gw.Namespace,
@@ -329,6 +360,43 @@ func (r *GatewayReconciler) findGatewaysForTunnel(ctx context.Context, obj clien
 				},
 			})
 		}
+	}
+	return requests
+}
+
+// findGatewaysForHTTPRoute maps an HTTPRoute to the Gateways it references
+// via parentRefs. Used by the HTTPRoute watch to trigger Gateway reconciliation
+// when routes are created, updated, or deleted, keeping listener.attachedRoutes
+// counts current.
+func (r *GatewayReconciler) findGatewaysForHTTPRoute(ctx context.Context, obj client.Object) []reconcile.Request {
+	route, ok := obj.(*gwapiv1.HTTPRoute)
+	if !ok {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	seen := make(map[types.NamespacedName]bool)
+	for _, parentRef := range route.Spec.ParentRefs {
+		if parentRef.Group != nil && string(*parentRef.Group) != gwapiv1.GroupName {
+			continue
+		}
+		if parentRef.Kind != nil && string(*parentRef.Kind) != "Gateway" {
+			continue
+		}
+
+		gwNamespace := route.Namespace
+		if parentRef.Namespace != nil {
+			gwNamespace = string(*parentRef.Namespace)
+		}
+		nn := types.NamespacedName{
+			Name:      string(parentRef.Name),
+			Namespace: gwNamespace,
+		}
+		if seen[nn] {
+			continue
+		}
+		seen[nn] = true
+		requests = append(requests, reconcile.Request{NamespacedName: nn})
 	}
 	return requests
 }

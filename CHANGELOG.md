@@ -3,6 +3,12 @@
 All notable changes to cfgate are documented in this file.
 
 
+## [0.1.0-alpha.13] - Unreleased
+
+### Deprecations
+
+- **spec.ownership.comment.enabled** and **spec.ownership.comment.template** are deprecated and ignored. The controller always writes a hardcoded `"managed by cfgate"` comment. Both fields will be removed in **v0.1.0-alpha.14**. To migrate, remove the `comment` section from `spec.ownership`.
+
 ## [0.1.0-alpha.12] - 2026-02-19
 
 ### Features

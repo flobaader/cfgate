@@ -135,7 +135,14 @@ var _ = Describe("CloudflareDNS E2E", Label("cloudflare"), Ordered, func() {
 			By("Verifying DNS record is deleted from Cloudflare")
 			Eventually(func() bool {
 				record, err := getDNSRecordFromCloudflare(ctx, cfClient, zoneID, hostname, "CNAME")
-				return err == nil && record == nil
+				if err != nil {
+					GinkgoWriter.Printf("DNS deletion check error: %v\n", err)
+					return false
+				}
+				if record != nil {
+					GinkgoWriter.Printf("DNS record still exists: ID=%s, Content=%s, Comment=%q\n", record.ID, record.Content, record.Comment)
+				}
+				return record == nil
 			}, DefaultTimeout, DefaultInterval).Should(BeTrue(), "DNS record should be deleted on cleanup")
 		})
 	})
@@ -187,8 +194,15 @@ var _ = Describe("CloudflareDNS E2E", Label("cloudflare"), Ordered, func() {
 			By("Waiting for DNS record cleanup")
 			Eventually(func() bool {
 				record, err := getDNSRecordFromCloudflare(ctx, cfClient, zoneID, hostname, "CNAME")
-				return err == nil && record == nil
-			}, DefaultTimeout, DefaultInterval).Should(BeTrue())
+				if err != nil {
+					GinkgoWriter.Printf("DNS deletion check error: %v\n", err)
+					return false
+				}
+				if record != nil {
+					GinkgoWriter.Printf("DNS record still exists: ID=%s, Content=%s, Comment=%q\n", record.ID, record.Content, record.Comment)
+				}
+				return record == nil
+			}, DefaultTimeout, DefaultInterval).Should(BeTrue(), "DNS record should be deleted on cleanup")
 		})
 	})
 
@@ -219,7 +233,14 @@ var _ = Describe("CloudflareDNS E2E", Label("cloudflare"), Ordered, func() {
 			By("Verifying DELETE: deleting CloudflareDNS deletes records")
 			Expect(k8sClient.Delete(ctx, dnsResource)).To(Succeed())
 			Eventually(func() bool {
-				record, _ := getDNSRecordFromCloudflare(ctx, cfClient, zoneID, hostname, "CNAME")
+				record, err := getDNSRecordFromCloudflare(ctx, cfClient, zoneID, hostname, "CNAME")
+				if err != nil {
+					GinkgoWriter.Printf("DNS deletion check error: %v\n", err)
+					return false
+				}
+				if record != nil {
+					GinkgoWriter.Printf("DNS record still exists: ID=%s, Content=%s, Comment=%q\n", record.ID, record.Content, record.Comment)
+				}
 				return record == nil
 			}, DefaultTimeout, DefaultInterval).Should(BeTrue(), "Record should be deleted with sync policy")
 		})
@@ -587,6 +608,38 @@ var _ = Describe("CloudflareDNS E2E", Label("cloudflare"), Ordered, func() {
 
 			// Manual cleanup.
 			cleanupDNSRecord(ctx, cfClient, zoneID, hostname, "CNAME")
+		})
+	})
+
+	// =========================================================================
+	// Section 8: Comment Length Regression Guard
+	// =========================================================================
+
+	Context("comment length regression guard", func() {
+		It("syncs DNS record with long resource name without exceeding Cloudflare 100-char comment limit", SpecTimeout(6*time.Minute), func(ctx SpecContext) {
+			// Regression guard for alpha.13 fix.
+			// Prior to alpha.13, the comment included owner/resource metadata:
+			//   "managed by cfgate, owner=<ns>/<name>, dns=<ns>/<name>"
+			// This exceeded the Cloudflare API's 100-char comment limit with
+			// long namespace/name combinations, causing sync failures.
+			// After alpha.13, the comment is fixed: "managed by cfgate" (16 chars).
+			// This test uses a deliberately long resource name so the old format
+			// would produce a ~125-char comment, catching any regression.
+
+			By("Creating CloudflareDNS with a long resource name")
+			hostname := fmt.Sprintf("%s.%s", testID("cmtregr"), testEnv.CloudflareZoneName)
+			dnsResource := createCloudflareDNSWithTunnelRef(ctx, k8sClient,
+				testID("dns-comment-regression"), namespace.Name,
+				sharedTunnel.Name, namespace.Name,
+				[]string{hostname},
+				cfgatev1alpha1.DNSPolicySync,
+				true, // TXT ownership enabled
+			)
+
+			By("Verifying DNS becomes Ready (comment accepted by Cloudflare API)")
+			dnsResource = waitForDNSReady(ctx, k8sClient, dnsResource.Name, namespace.Name, DefaultTimeout)
+			Expect(dnsResource.Status.SyncedRecords).To(BeNumerically(">=", 1),
+				"Record should sync successfully — if this fails, check that the DNS record comment does not exceed 100 chars")
 		})
 	})
 })

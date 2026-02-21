@@ -244,7 +244,10 @@ type IngressRule struct {
 	// Hostname is the hostname to match (optional for catch-all).
 	Hostname string `json:"hostname,omitempty"`
 
-	// Path is the path regex to match (optional).
+	// Path is a Go RE2 regular expression for path matching (optional).
+	// Cloudflare's cloudflared uses regexp.MatchString, which checks for a
+	// substring match: the pattern need not match the entire path. For example,
+	// a path of "/api" also matches "/api/v1" and "/fooapi".
 	Path string `json:"path,omitempty"`
 
 	// Service is the origin service URL.

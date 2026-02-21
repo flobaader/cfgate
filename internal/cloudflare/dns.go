@@ -202,6 +202,11 @@ func (s *DNSService) SyncRecordWithPolicy(ctx context.Context, zoneID string, de
 		return existing, false, nil
 	}
 
+	if ownerID != "" && isLegacyCommentOwnership(existing) {
+		s.log.V(1).Info("record matched via legacy comment ownership, consider enabling TXT ownership for multi-cluster safety",
+			"name", existing.Name, "type", existing.Type)
+	}
+
 	if recordsMatch(existing, &desired) {
 		return existing, false, nil
 	}
@@ -443,25 +448,47 @@ func BuildOwnershipTXTRecord(hostname, ownerID, resource, prefix string) DNSReco
 }
 
 // IsOwnedByCfgate checks if a DNS record is managed by cfgate.
+// TXT ownership records (heritage=cfgate in Content) are the authoritative ownership
+// mechanism with ownerID verification for multi-cluster safety. When ownerID is provided,
+// the content is split on commas and the cfgate/owner field must match exactly to prevent
+// substring false-positives (e.g., "ns/foo" must not match "ns/foobar").
+// Comment-based detection ("managed by cfgate") is a cosmetic fallback that matches
+// any cfgate installation without owner discrimination.
 func IsOwnedByCfgate(record *DNSRecord, ownerID string) bool {
 	if record == nil {
 		return false
 	}
 
-	// Alpha.3 format: heritage=cfgate
+	// TXT ownership record: heritage=cfgate with ownerID verification
 	if strings.HasPrefix(record.Content, "heritage=cfgate") {
 		if ownerID == "" {
-			return true // Any cfgate instance
+			return true
 		}
-		return strings.Contains(record.Content, fmt.Sprintf("cfgate/owner=%s", ownerID))
+		// Exact field match: split comma-delimited content and compare the full field.
+		ownerField := fmt.Sprintf("cfgate/owner=%s", ownerID)
+		for _, field := range strings.Split(record.Content, ",") {
+			if field == ownerField {
+				return true
+			}
+		}
+		return false
 	}
 
-	// Alpha.2 backward compatibility: comment-based
-	if strings.Contains(record.Comment, "managed by cfgate") {
-		return true
-	}
+	// Comment-based detection: cosmetic signal only, no owner verification.
+	// Any record with "managed by cfgate" in the comment is treated as ours.
+	// For multi-cluster owner discrimination, enable TXT ownership records.
+	return strings.Contains(record.Comment, "managed by cfgate")
+}
 
-	return false
+// isLegacyCommentOwnership returns true if the record relies on comment-only
+// ownership (no companion TXT record). These records lack multi-cluster owner
+// discrimination. The warning in SyncRecordWithPolicy recommends enabling TXT ownership.
+func isLegacyCommentOwnership(record *DNSRecord) bool {
+	if record == nil {
+		return false
+	}
+	return !strings.HasPrefix(record.Content, "heritage=cfgate") &&
+		strings.Contains(record.Comment, "managed by cfgate")
 }
 
 // ParseOwnershipRecord parses ownership metadata from TXT record content.

@@ -11,14 +11,14 @@ Per-route configuration applied to HTTPRoute, TCPRoute, UDPRoute, and GRPCRoute 
 | `cfgate.io/origin-protocol` | `http`, `https`, `tcp`\*, `udp`\* | Route-type dependent | Backend protocol |
 | `cfgate.io/origin-ssl-verify` | `true`, `false` | `true` | TLS certificate verification |
 | `cfgate.io/origin-connect-timeout` | Duration string (`30s`, `1m`) | `30s` | Origin connection timeout |
-| `cfgate.io/origin-http-host-header` | Hostname string | -- | Host header override sent to origin |
-| `cfgate.io/origin-server-name` | Hostname string | -- | TLS SNI server name |
-| `cfgate.io/origin-ca-pool` | File path string | -- | CA certificate pool path |
+| `cfgate.io/origin-http-host-header` | Hostname string | *none* | Host header override sent to origin |
+| `cfgate.io/origin-server-name` | Hostname string | *none* | TLS SNI server name |
+| `cfgate.io/origin-ca-pool` | File path string | *none* | CA certificate pool path |
 | `cfgate.io/origin-http2` | `true`, `false` | `false` | HTTP/2 to origin |
 | `cfgate.io/ttl` | `1`-`86400` | `1` (auto) | DNS record TTL in seconds |
 | `cfgate.io/cloudflare-proxied` | `true`, `false` | `true` | Cloudflare proxy (orange cloud) |
-| `cfgate.io/access-policy` | `name` or `namespace/name` | -- | References a CloudflareAccessPolicy |
-| `cfgate.io/hostname` | RFC 1123 hostname | -- | Override or set hostname for the route |
+| `cfgate.io/access-policy` | `name` or `namespace/name` | *none* | References a CloudflareAccessPolicy |
+| `cfgate.io/hostname` | RFC 1123 hostname | *none* | Override or set hostname for the route |
 \*`tcp` and `udp` protocol values are accepted but TCPRoute and UDPRoute controllers are stubs, planned for v0.2.0.
 
 **Default for `cfgate.io/origin-protocol`:** `http` for HTTPRoute, `tcp` for TCPRoute, `udp` for UDPRoute. GRPCRoute defaults to `http` (cloudflared handles gRPC over HTTP).
@@ -184,7 +184,7 @@ Sets the DNS record TTL (Time To Live) in seconds. Value `1` is special and mean
 
 **Default:** `1` (auto)
 
-**Read by:** CloudflareDNS controller (via route hostname collection)
+**Read by:** CloudflareDNS controller (via route hostname collection). See [CloudflareDNS](cloudflare-dns.md#specdefaults) for default TTL configuration.
 
 ```yaml
 metadata:
@@ -202,7 +202,7 @@ Controls whether Cloudflare proxies traffic for the DNS record (the "orange clou
 
 **Default:** `true`
 
-**Read by:** CloudflareDNS controller (via route hostname collection)
+**Read by:** CloudflareDNS controller (via route hostname collection). See [CloudflareDNS](cloudflare-dns.md#specdefaults) for default proxy configuration.
 
 ```yaml
 metadata:
@@ -214,7 +214,7 @@ metadata:
 
 #### `cfgate.io/access-policy`
 
-References a CloudflareAccessPolicy resource to protect this route with Cloudflare Access zero-trust authentication.
+References a [CloudflareAccessPolicy](cloudflare-access-policy.md) resource to protect this route with Cloudflare Access zero-trust authentication.
 
 **Valid values:** `name` (same namespace) or `namespace/name`
 
@@ -280,7 +280,7 @@ Applied to Gateway resources to connect them to CloudflareTunnel resources.
 
 #### `cfgate.io/tunnel-ref`
 
-Connects a Gateway to a CloudflareTunnel resource. This annotation is the link between the Gateway API layer and cfgate's tunnel management.
+Connects a Gateway to a [CloudflareTunnel](cloudflare-tunnel.md) resource. This annotation is the link between the [Gateway API](gateway-api-primer.md) layer and cfgate's tunnel management.
 
 **Format:** `namespace/name` (recommended) or `name` (same namespace)
 
@@ -346,7 +346,7 @@ Controls what happens to Cloudflare-side resources when the Kubernetes resource 
 # Annotate before deletion to orphan the tunnel
 kubectl annotate cloudflaretunnel my-tunnel cfgate.io/deletion-policy=orphan
 
-# Now delete -- tunnel stays in Cloudflare, K8s resource removed
+# Now delete: tunnel stays in Cloudflare, K8s resource removed
 kubectl delete cloudflaretunnel my-tunnel
 ```
 

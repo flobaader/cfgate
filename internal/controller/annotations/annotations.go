@@ -13,12 +13,14 @@ import (
 
 // Standard errors for annotation validation.
 var (
-	ErrMissingHostnameAnnotation = errors.New("missing required hostname annotation")
-	ErrInvalidHostnameFormat     = errors.New("invalid hostname format")
-	ErrInvalidProtocol           = errors.New("invalid origin protocol")
-	ErrInvalidTTL                = errors.New("invalid TTL value")
-	ErrMissingTunnelRef          = errors.New("missing tunnel reference annotation")
-	ErrInvalidTunnelRefFormat    = errors.New("invalid tunnel reference format")
+	ErrMissingHostnameAnnotation  = errors.New("missing required hostname annotation")
+	ErrInvalidHostnameFormat      = errors.New("invalid hostname format")
+	ErrInvalidProtocol            = errors.New("invalid origin protocol")
+	ErrInvalidTTL                 = errors.New("invalid TTL value")
+	ErrMissingTunnelRef           = errors.New("missing tunnel reference annotation")
+	ErrInvalidTunnelRefFormat     = errors.New("invalid tunnel reference format")
+	ErrInvalidNamespacedName      = errors.New("invalid namespaced name format")
+	ErrEmptyNamespacedNameSegment = errors.New("empty segment in namespaced name")
 )
 
 // AnnotationPrefix is the prefix for all cfgate annotations.
@@ -197,6 +199,35 @@ func GetAnnotationDuration(obj client.Object, key string, defaultValue time.Dura
 		return defaultValue
 	}
 	return parsed
+}
+
+// ParseNamespacedName parses a reference in "namespace/name" or "name" format.
+// Returns (namespace, name, nil) on success.
+// If ref contains no slash, defaultNS is used as the namespace.
+// Returns an error if ref is empty, contains more than one slash, or has empty segments.
+func ParseNamespacedName(ref string, defaultNS string) (string, string, error) {
+	if ref == "" {
+		return "", "", fmt.Errorf("%w: reference is empty", ErrInvalidNamespacedName)
+	}
+
+	parts := strings.Split(ref, "/")
+	switch len(parts) {
+	case 1:
+		if parts[0] == "" {
+			return "", "", fmt.Errorf("%w: name is empty", ErrEmptyNamespacedNameSegment)
+		}
+		return defaultNS, parts[0], nil
+	case 2:
+		if parts[0] == "" {
+			return "", "", fmt.Errorf("%w: namespace is empty in %q", ErrEmptyNamespacedNameSegment, ref)
+		}
+		if parts[1] == "" {
+			return "", "", fmt.Errorf("%w: name is empty in %q", ErrEmptyNamespacedNameSegment, ref)
+		}
+		return parts[0], parts[1], nil
+	default:
+		return "", "", fmt.Errorf("%w: expected \"namespace/name\" or \"name\", got %q", ErrInvalidNamespacedName, ref)
+	}
 }
 
 // --- Validation Functions ---

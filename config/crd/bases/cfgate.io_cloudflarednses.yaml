@@ -147,6 +147,8 @@ spec:
                 x-kubernetes-validations:
                 - message: either accountId or accountName must be specified
                   rule: has(self.accountId) || has(self.accountName)
+                - message: accountId must be a 32-character hex string
+                  rule: '!has(self.accountId) || self.accountId.matches(''^[a-f0-9]{32}$'')'
               defaults:
                 description: Defaults defines default settings for DNS records.
                 properties:
@@ -184,9 +186,10 @@ spec:
                     description: Type is the DNS record type.
                     type: string
                   value:
-                    description: Value is the target value (domain for CNAME, IP for
-                      A/AAAA).
-                    maxLength: 255
+                    description: |-
+                      Value is the target value (domain for CNAME, IP for A/AAAA).
+                      Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                    maxLength: 253
                     minLength: 1
                     type: string
                 required:
@@ -215,15 +218,26 @@ spec:
                 description: Ownership defines how to track record ownership.
                 properties:
                   comment:
-                    description: Comment configures comment-based ownership.
+                    description: |-
+                      Comment configures comment-based ownership.
+
+                      Deprecated: since v0.1.0-alpha.13. All fields are ignored. Will be removed in v0.1.0-alpha.14.
                     properties:
                       enabled:
                         default: false
-                        description: Enabled enables comment-based ownership tracking.
+                        description: |-
+                          Enabled enables comment-based ownership tracking.
+
+                          Deprecated: since v0.1.0-alpha.13. This field is ignored. The controller always
+                          writes a "managed by cfgate" comment. Will be removed in v0.1.0-alpha.14.
                         type: boolean
                       template:
                         default: managed by cfgate
-                        description: Template is the comment template.
+                        description: |-
+                          Template is the comment template.
+
+                          Deprecated: since v0.1.0-alpha.13. This field is ignored. The controller always
+                          uses "managed by cfgate" as the comment. Will be removed in v0.1.0-alpha.14.
                         maxLength: 255
                         type: string
                     type: object
@@ -277,10 +291,16 @@ spec:
                         variable for dynamic resolution when using tunnelRef.
                       properties:
                         hostname:
-                          description: Hostname is the DNS hostname to create.
-                          maxLength: 255
+                          description: |-
+                            Hostname is the DNS hostname to create.
+                            Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                          maxLength: 253
                           minLength: 1
                           type: string
+                          x-kubernetes-validations:
+                          - message: each DNS label must not exceed 63 octets (RFC
+                              1035 section 2.3.4)
+                            rule: self.split('.').all(s, size(s) <= 63)
                         proxied:
                           description: |-
                             Proxied enables Cloudflare proxy for this record.
@@ -290,7 +310,8 @@ spec:
                           description: |-
                             Target is the CNAME target. Supports template variable {{ .TunnelDomain }}.
                             Defaults to tunnel domain when tunnelRef is specified.
-                          maxLength: 255
+                            Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                          maxLength: 253
                           type: string
                         ttl:
                           default: 1
@@ -377,12 +398,19 @@ spec:
                       description: ID is the optional explicit zone ID (skips API
                         lookup).
                       maxLength: 32
+                      pattern: ^[a-f0-9]{32}$
                       type: string
                     name:
-                      description: Name is the zone domain name (e.g., example.com).
-                      maxLength: 255
+                      description: |-
+                        Name is the zone domain name (e.g., example.com).
+                        Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
+                      maxLength: 253
                       minLength: 1
                       type: string
+                      x-kubernetes-validations:
+                      - message: each DNS label must not exceed 63 octets (RFC 1035
+                          section 2.3.4)
+                        rule: self.split('.').all(s, size(s) <= 63)
                     proxied:
                       description: |-
                         Proxied sets the default proxied setting for this zone.

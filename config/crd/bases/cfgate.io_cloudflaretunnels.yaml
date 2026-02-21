@@ -122,6 +122,8 @@ spec:
                 x-kubernetes-validations:
                 - message: either accountId or accountName must be specified
                   rule: has(self.accountId) || has(self.accountName)
+                - message: accountId must be a 32-character hex string
+                  rule: '!has(self.accountId) || self.accountId.matches(''^[a-f0-9]{32}$'')'
               cloudflared:
                 description: Cloudflared defines the cloudflared deployment configuration.
                 properties:
@@ -315,6 +317,7 @@ spec:
               fallbackTarget:
                 default: http_status:404
                 description: FallbackTarget is the service for unmatched requests.
+                maxLength: 255
                 type: string
               originDefaults:
                 description: OriginDefaults defines default settings for origin connections.

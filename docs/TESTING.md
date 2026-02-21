@@ -7,7 +7,7 @@ cfgate uses an E2E-only test strategy. All tests run against the live Cloudflare
 - **Real API only.** Every test creates and verifies actual Cloudflare resources (tunnels, DNS records, Access applications, service tokens).
 - **E2E-only coverage.** Controller reconciliation patterns are incompatible with VCR/cassette approaches (attempted and removed). The controller runs in-process during tests against a real kind cluster.
 - **API state verification.** Tests verify that Kubernetes CRD state and Cloudflare API state converge correctly.
-- **111 specs across 7 test files.** Full lifecycle coverage for all CRDs, annotations, cross-resource interactions, CEL validation, structural invariants, and edge cases.
+- **104 specs across 7 test files.** Full lifecycle coverage for all CRDs, annotations, cross-resource interactions, CEL validation, structural invariants, and edge cases.
 
 ## Environment Variables
 
@@ -26,7 +26,7 @@ All variables are injected via `mise` from `secrets.enc.yaml` and `.env`. See [C
 |----------|---------|
 | `CLOUDFLARE_ZONE_NAME` | Zone domain name for test DNS records (e.g., `example.com`) |
 
-Tests construct hostnames as `e2e-{type}-{node}-{timestamp}.{CLOUDFLARE_ZONE_NAME}`. Without this variable, DNS and Access test suites are skipped.
+Tests construct hostnames as `e2e-{type}-{node}-{line}.{CLOUDFLARE_ZONE_NAME}`. Without this variable, DNS and Access test suites are skipped.
 
 > **Note:** `CLOUDFLARE_ZONE_NAME` is a test-only variable. The cfgate controller does not use it. Zones are configured per CloudflareDNS resource via `spec.zones[]`.
 
@@ -150,11 +150,11 @@ test/e2e/
   e2e_suite_test.go     # Suite setup, framework init, cleanup helpers
   helpers_test.go       # Wait functions, resource creators, CF API verifiers
   tunnel_test.go        # CloudflareTunnel lifecycle (17 specs)
-  dns_test.go           # CloudflareDNS sync, policies, ownership (18 specs)
+  dns_test.go           # CloudflareDNS sync, policies, ownership (19 specs)
   access_test.go        # CloudflareAccessPolicy rules and applications (26 specs)
-  annotations_test.go   # HTTPRoute annotation parsing and propagation (16 specs)
+  annotations_test.go   # HTTPRoute annotation parsing and propagation (15 specs)
   combined_test.go      # Multi-CRD interaction and cross-resource tests (7 specs)
-  invariants_test.go    # Structural invariants across all CRDs (7 specs, 45 assertions)
+  invariants_test.go    # Structural invariants across all CRDs (10 specs, 45 assertions)
   validation_test.go    # CEL validation rules, no Cloudflare API needed (10 specs)
 ```
 
@@ -163,10 +163,10 @@ test/e2e/
 Resources created during tests follow the pattern:
 
 ```
-e2e-{type}-{ginkgo-node}-{unix-timestamp}
+e2e-{type}-{node}-{line}
 ```
 
-This ensures parallel test nodes do not collide and orphaned resources are identifiable.
+The `{line}` component is the Ginkgo spec's source line number, making names deterministic and reproducible across runs. This ensures parallel test nodes do not collide and orphaned resources are identifiable.
 
 ## Test Patterns
 
@@ -214,7 +214,7 @@ Eventually(func(g Gomega) {
 }, DefaultTimeout, DefaultInterval).Should(Succeed())
 ```
 
-Never use bare `Get` followed by `Expect(Update).To(Succeed())` -- the controller will race you.
+Never use bare `Get` followed by `Expect(Update).To(Succeed())`; the controller will race you.
 
 ### Wait Helpers
 
@@ -226,10 +226,9 @@ Never use bare `Get` followed by `Expect(Update).To(Succeed())` -- the controlle
 | `waitForTunnelCondition` | Specific condition on tunnel |
 | `waitForTunnelDeleted` | Tunnel removed from K8s |
 | `waitForTunnelDeletedFromCloudflare` | Tunnel removed from Cloudflare API |
-| `waitForDeploymentReady` | cloudflared Deployment available |
-| `waitForDNSReady` | DNS status Ready=True |
-| `waitForDNSRecordInCloudflare` | DNS record exists in Cloudflare API |
-| `waitForDNSRecordDeletedFromCloudflare` | DNS record removed from Cloudflare API |
+| `waitForDeploymentSpec` | cloudflared Deployment matches expected replicas |
+| `waitForDNSReady` | DNS status Ready=True (defined in dns_test.go) |
+| `waitForDNSDeleted` | DNS resource removed from K8s (defined in dns_test.go) |
 | `waitForAccessPolicyReady` | Access policy status Ready=True |
 | `waitForAccessPolicyDeleted` | Access policy removed from K8s |
 | `waitForAccessApplicationDeletedFromCloudflare` | Access app removed from Cloudflare API |
@@ -267,7 +266,7 @@ Eight test contexts cover 45 assertions:
 | Cross-CRD consistency | INV-X1..X3 | DNS/tunnel domain, CNAME content, credential inheritance chain |
 | Deletion cleanup | INV-DEL1..DEL4 | Namespace trigger, tunnel delete, DNS removal, Access app removal |
 
-The invariant test context is `Ordered` -- specs share a tunnel, GatewayClass, and Gateway. A failure in an early spec cascades to skip all subsequent specs in the context.
+The invariant test context is `Ordered`; specs share a tunnel, GatewayClass, and Gateway. A failure in an early spec cascades to skip all subsequent specs in the context.
 
 ## Skipped Tests
 

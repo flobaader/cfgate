@@ -75,9 +75,10 @@ type ExternalTarget struct {
 	Type RecordType `json:"type"`
 
 	// Value is the target value (domain for CNAME, IP for A/AAAA).
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
 	Value string `json:"value"`
 }
 
@@ -88,14 +89,17 @@ type ExternalTarget struct {
 // for all records in this zone.
 type DNSZoneConfig struct {
 	// Name is the zone domain name (e.g., example.com).
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="self.split('.').all(s, size(s) <= 63)",message="each DNS label must not exceed 63 octets (RFC 1035 section 2.3.4)"
 	Name string `json:"name"`
 
 	// ID is the optional explicit zone ID (skips API lookup).
 	// +optional
 	// +kubebuilder:validation:MaxLength=32
+	// +kubebuilder:validation:Pattern=`^[a-f0-9]{32}$`
 	ID string `json:"id,omitempty"`
 
 	// Proxied sets the default proxied setting for this zone.
@@ -152,15 +156,18 @@ type DNSGatewayRoutesSource struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.ttl) || self.ttl == 1 || (self.ttl >= 60 && self.ttl <= 86400)",message="TTL must be 1 (auto) or between 60 and 86400 seconds"
 type DNSExplicitHostname struct {
 	// Hostname is the DNS hostname to create.
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="self.split('.').all(s, size(s) <= 63)",message="each DNS label must not exceed 63 octets (RFC 1035 section 2.3.4)"
 	Hostname string `json:"hostname"`
 
 	// Target is the CNAME target. Supports template variable {{ .TunnelDomain }}.
 	// Defaults to tunnel domain when tunnelRef is specified.
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +optional
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
 	Target string `json:"target,omitempty"`
 
 	// Proxied enables Cloudflare proxy for this record.
@@ -233,14 +240,23 @@ type DNSTXTRecordOwnership struct {
 
 // DNSCommentOwnership configures comment-based ownership tracking in DNS records.
 //
-// DNSCommentOwnership uses the Cloudflare DNS record comment field to mark ownership.
-// This is a lighter-weight alternative to TXT records but provides less granular tracking.
+// Deprecated: since v0.1.0-alpha.13. The controller ignores both fields and always
+// writes a hardcoded "managed by cfgate" comment on managed DNS records. These fields
+// will be removed in v0.1.0-alpha.14. No migration is needed — the hardcoded behavior
+// is identical to the previous default values. Remove the spec.ownership.comment section
+// from your CloudflareDNS resources to silence future validation warnings.
 type DNSCommentOwnership struct {
 	// Enabled enables comment-based ownership tracking.
+	//
+	// Deprecated: since v0.1.0-alpha.13. This field is ignored. The controller always
+	// writes a "managed by cfgate" comment. Will be removed in v0.1.0-alpha.14.
 	// +kubebuilder:default=false
 	Enabled bool `json:"enabled,omitempty"`
 
 	// Template is the comment template.
+	//
+	// Deprecated: since v0.1.0-alpha.13. This field is ignored. The controller always
+	// uses "managed by cfgate" as the comment. Will be removed in v0.1.0-alpha.14.
 	// +kubebuilder:default="managed by cfgate"
 	// +kubebuilder:validation:MaxLength=255
 	Template string `json:"template,omitempty"`
@@ -266,6 +282,8 @@ type DNSOwnershipConfig struct {
 	TXTRecord DNSTXTRecordOwnership `json:"txtRecord,omitempty"`
 
 	// Comment configures comment-based ownership.
+	//
+	// Deprecated: since v0.1.0-alpha.13. All fields are ignored. Will be removed in v0.1.0-alpha.14.
 	// +optional
 	Comment DNSCommentOwnership `json:"comment,omitempty"`
 }

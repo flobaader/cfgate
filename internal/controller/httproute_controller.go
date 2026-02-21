@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -88,6 +87,9 @@ func (r *HTTPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		r.Recorder.Eventf(&route, nil, corev1.EventTypeWarning, "InvalidAnnotation", "Validate", errMsg)
 		log.Info("invalid annotation value", "error", errMsg)
 	}
+
+	// 2b. Warn about unsupported path types
+	r.validatePathTypes(&route)
 
 	// 3. Preserve other controllers' status entries (spec: MUST NOT modify
 	// entries with non-matching controllerName). Start from existing parents,
@@ -198,6 +200,14 @@ func (r *HTTPRouteReconciler) findRoutesForGateway(ctx context.Context, obj clie
 	var requests []reconcile.Request
 	for _, route := range routes.Items {
 		for _, ref := range route.Spec.ParentRefs {
+			// Skip non-Gateway parentRefs (consistent with isCfgateParentRef guard)
+			if ref.Group != nil && string(*ref.Group) != gwapiv1.GroupName {
+				continue
+			}
+			if ref.Kind != nil && string(*ref.Kind) != "Gateway" {
+				continue
+			}
+
 			refNS := route.Namespace
 			if ref.Namespace != nil {
 				refNS = string(*ref.Namespace)
@@ -275,7 +285,10 @@ func (r *HTTPRouteReconciler) findRoutesForAccessPolicy(ctx context.Context, obj
 		}
 
 		// Parse namespace/name format
-		policyNS, policyName := parsePolicyRef(policyRef, route.Namespace)
+		policyNS, policyName, err := parsePolicyRef(policyRef, route.Namespace)
+		if err != nil {
+			continue
+		}
 		if policyName == policy.Name && policyNS == policy.Namespace {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
@@ -298,6 +311,16 @@ func (r *HTTPRouteReconciler) isCfgateParentRef(
 	route *gwapiv1.HTTPRoute,
 	ref gwapiv1.ParentReference,
 ) (bool, error) {
+	// Validate Group defaults to gateway.networking.k8s.io
+	if ref.Group != nil && string(*ref.Group) != gwapiv1.GroupName {
+		return false, nil
+	}
+
+	// Validate Kind defaults to "Gateway"
+	if ref.Kind != nil && string(*ref.Kind) != "Gateway" {
+		return false, nil
+	}
+
 	// Resolve Gateway namespace
 	gwNamespace := route.Namespace
 	if ref.Namespace != nil {
@@ -380,7 +403,7 @@ func (r *HTTPRouteReconciler) validateParentRef(
 			parentStatus.Conditions[0] = status.NewCondition(
 				string(gwapiv1.RouteConditionAccepted),
 				metav1.ConditionFalse,
-				"NoMatchingParent",
+				status.ReasonNoMatchingParent,
 				fmt.Sprintf("Gateway %s/%s not found", gwNamespace, ref.Name),
 				route.Generation,
 			)
@@ -396,7 +419,7 @@ func (r *HTTPRouteReconciler) validateParentRef(
 		parentStatus.Conditions[0] = status.NewCondition(
 			string(gwapiv1.RouteConditionAccepted),
 			metav1.ConditionFalse,
-			"NoMatchingParent",
+			status.ReasonNoMatchingParent,
 			fmt.Sprintf("GatewayClass %s not found", gateway.Spec.GatewayClassName),
 			route.Generation,
 		)
@@ -407,7 +430,7 @@ func (r *HTTPRouteReconciler) validateParentRef(
 		parentStatus.Conditions[0] = status.NewCondition(
 			string(gwapiv1.RouteConditionAccepted),
 			metav1.ConditionFalse,
-			"NoMatchingParent",
+			status.ReasonNoMatchingParent,
 			"Gateway is not managed by cfgate",
 			route.Generation,
 		)
@@ -419,7 +442,7 @@ func (r *HTTPRouteReconciler) validateParentRef(
 		parentStatus.Conditions[0] = status.NewCondition(
 			string(gwapiv1.RouteConditionAccepted),
 			metav1.ConditionFalse,
-			"NoTunnelRef",
+			status.ReasonNoTunnelRef,
 			"Gateway has no tunnel reference annotation",
 			route.Generation,
 		)
@@ -440,7 +463,7 @@ func (r *HTTPRouteReconciler) validateParentRef(
 							parentStatus.Conditions[0] = status.NewCondition(
 								string(gwapiv1.RouteConditionAccepted),
 								metav1.ConditionFalse,
-								"NotAllowedByListeners",
+								status.ReasonNotAllowedByListeners,
 								"Route namespace not allowed by listener",
 								route.Generation,
 							)
@@ -455,7 +478,7 @@ func (r *HTTPRouteReconciler) validateParentRef(
 			parentStatus.Conditions[0] = status.NewCondition(
 				string(gwapiv1.RouteConditionAccepted),
 				metav1.ConditionFalse,
-				"NoMatchingListenerHostname",
+				status.ReasonNoMatchingListenerHostname,
 				fmt.Sprintf("Listener %s not found", *ref.SectionName),
 				route.Generation,
 			)
@@ -500,7 +523,7 @@ func (r *HTTPRouteReconciler) resolveBackends(
 					return status.NewCondition(
 						string(gwapiv1.RouteConditionResolvedRefs),
 						metav1.ConditionFalse,
-						"BackendNotFound",
+						status.ReasonBackendNotFound,
 						fmt.Sprintf("Service %s/%s not found", namespace, backend.Name),
 						route.Generation,
 					)
@@ -509,7 +532,7 @@ func (r *HTTPRouteReconciler) resolveBackends(
 				return status.NewCondition(
 					string(gwapiv1.RouteConditionResolvedRefs),
 					metav1.ConditionFalse,
-					"BackendNotFound",
+					status.ReasonBackendNotFound,
 					fmt.Sprintf("Failed to get Service %s/%s: %v", namespace, backend.Name, err),
 					route.Generation,
 				)
@@ -544,7 +567,19 @@ func (r *HTTPRouteReconciler) resolveAccessPolicy(
 	}
 
 	// Parse namespace/name format
-	policyNS, policyName := parsePolicyRef(policyRef, route.Namespace)
+	policyNS, policyName, err := parsePolicyRef(policyRef, route.Namespace)
+	if err != nil {
+		log.Info("invalid access policy reference", "ref", policyRef, "error", err)
+		r.Recorder.Eventf(route, nil, corev1.EventTypeWarning, status.ReasonInvalidPolicyRef, "Validate",
+			"Invalid access policy reference %q: %v", policyRef, err)
+		return status.NewCondition(
+			status.ConditionTypeAccessPolicyResolved,
+			metav1.ConditionFalse,
+			status.ReasonInvalidPolicyRef,
+			err.Error(),
+			route.Generation,
+		), true
+	}
 
 	var policy cfgatev1alpha1.CloudflareAccessPolicy
 	if err := r.Get(ctx, types.NamespacedName{
@@ -557,21 +592,21 @@ func (r *HTTPRouteReconciler) resolveAccessPolicy(
 				"parsedNamespace", policyNS,
 				"parsedName", policyName,
 			)
-			r.Recorder.Eventf(route, nil, corev1.EventTypeWarning, "AccessPolicyNotFound", "Resolve",
+			r.Recorder.Eventf(route, nil, corev1.EventTypeWarning, status.ReasonAccessPolicyNotFound, "Resolve",
 				"Referenced CloudflareAccessPolicy %q not found", policyRef)
 			return status.NewCondition(
-				"AccessPolicyResolved",
+				status.ConditionTypeAccessPolicyResolved,
 				metav1.ConditionFalse,
-				"AccessPolicyNotFound",
+				status.ReasonAccessPolicyNotFound,
 				fmt.Sprintf("CloudflareAccessPolicy %s/%s not found", policyNS, policyName),
 				route.Generation,
 			), true
 		}
 		log.Error(err, "failed to get CloudflareAccessPolicy")
 		return status.NewCondition(
-			"AccessPolicyResolved",
+			status.ConditionTypeAccessPolicyResolved,
 			metav1.ConditionFalse,
-			"AccessPolicyError",
+			status.ReasonAccessPolicyError,
 			fmt.Sprintf("Failed to resolve CloudflareAccessPolicy: %v", err),
 			route.Generation,
 		), true
@@ -581,24 +616,46 @@ func (r *HTTPRouteReconciler) resolveAccessPolicy(
 		"policy", policyRef,
 		"applicationId", policy.Status.ApplicationID,
 	)
-	r.Recorder.Eventf(route, nil, corev1.EventTypeNormal, "AccessPolicyResolved", "Resolve",
+	r.Recorder.Eventf(route, nil, corev1.EventTypeNormal, status.ConditionTypeAccessPolicyResolved, "Resolve",
 		"Attached to CloudflareAccessPolicy %q", policyRef)
 
 	return status.NewCondition(
-		"AccessPolicyResolved",
+		status.ConditionTypeAccessPolicyResolved,
 		metav1.ConditionTrue,
-		"Resolved",
+		status.ReasonResolved,
 		fmt.Sprintf("Resolved CloudflareAccessPolicy %s/%s", policyNS, policyName),
 		route.Generation,
 	), true
 }
 
-// parsePolicyRef parses a policy reference in "namespace/name" or "name" format.
-// Returns (namespace, name). If no namespace specified, uses defaultNS.
-func parsePolicyRef(ref string, defaultNS string) (string, string) {
-	parts := strings.Split(ref, "/")
-	if len(parts) == 2 {
-		return parts[0], parts[1]
+// validatePathTypes emits warning events for path match types that cfgate
+// cannot enforce correctly. Cloudflare tunnel ingress uses Go regex substring
+// matching, so Exact match semantics are not achievable and PathPrefix matches
+// more broadly than the Gateway API spec requires.
+func (r *HTTPRouteReconciler) validatePathTypes(route *gwapiv1.HTTPRoute) {
+	for _, rule := range route.Spec.Rules {
+		for _, match := range rule.Matches {
+			if match.Path == nil || match.Path.Type == nil {
+				continue
+			}
+			pathVal := ""
+			if match.Path.Value != nil {
+				pathVal = *match.Path.Value
+			}
+			switch *match.Path.Type {
+			case gwapiv1.PathMatchExact:
+				r.Recorder.Eventf(route, nil, corev1.EventTypeWarning, "UnsupportedPathType", "Validate",
+					"Exact path match %q behaves as prefix match: cloudflared uses regex substring matching", pathVal)
+			case gwapiv1.PathMatchRegularExpression:
+				r.Recorder.Eventf(route, nil, corev1.EventTypeWarning, "PathTypeNotice", "Validate",
+					"RegularExpression path %q is passed directly to cloudflared regex engine (substring match, not full-string)", pathVal)
+			}
+		}
 	}
-	return defaultNS, ref
+}
+
+// parsePolicyRef parses a policy reference in "namespace/name" or "name" format.
+// Delegates to annotations.ParseNamespacedName for consistent validation.
+func parsePolicyRef(ref string, defaultNS string) (string, string, error) {
+	return annotations.ParseNamespacedName(ref, defaultNS)
 }

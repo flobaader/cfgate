@@ -1,0 +1,27 @@
+name: Security Scan
+
+on:
+  schedule:
+    - cron: "0 8 * * 3"
+  workflow_dispatch:
+
+permissions:
+  security-events: write
+
+jobs:
+  scan:
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - id: trivy
+        uses: aquasecurity/trivy-action@0.34.0
+        with:
+          image-ref: ghcr.io/cfgate/cfgate:latest
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always() && steps.trivy.conclusion != 'skipped'
+        with:
+          sarif_file: trivy-results.sarif

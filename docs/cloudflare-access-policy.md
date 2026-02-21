@@ -18,27 +18,27 @@ Access rules are organized into implementation tiers based on identity provider 
 | Field | Type | Default | Required | Description |
 |-------|------|---------|----------|-------------|
 | `spec.targetRef.group` | `string` | `gateway.networking.k8s.io` | Yes (if targetRef set) | API group of the target resource. Must be `gateway.networking.k8s.io`. |
-| `spec.targetRef.kind` | `string` | -- | Yes (if targetRef set) | Kind of the target. One of: `Gateway`, `HTTPRoute`, `GRPCRoute`, `TCPRoute`, `UDPRoute`. |
-| `spec.targetRef.name` | `string` | -- | Yes (if targetRef set) | Name of the target resource. 1-253 chars. |
+| `spec.targetRef.kind` | `string` | *none* | Yes (if targetRef set) | Kind of the target. One of: `Gateway`, `HTTPRoute`, `GRPCRoute`, `TCPRoute`, `UDPRoute`. |
+| `spec.targetRef.name` | `string` | *none* | Yes (if targetRef set) | Name of the target resource. 1-253 chars. |
 | `spec.targetRef.namespace` | `*string` | *(policy namespace)* | No | Namespace of the target. Cross-namespace requires ReferenceGrant. |
-| `spec.targetRef.sectionName` | `*string` | -- | No | Targets a specific listener (Gateway) or rule (Route). |
-| `spec.targetRefs[]` | `[]PolicyTargetReference` | -- | No | Multiple targets for policy attachment. Max 16 items. Same fields as `targetRef`. |
-| `spec.cloudflareRef.name` | `string` | -- | Yes (if cloudflareRef set) | Name of the credentials Secret. Min 1 char. |
+| `spec.targetRef.sectionName` | `*string` | *none* | No | Targets a specific listener (Gateway) or rule (Route). |
+| `spec.targetRefs[]` | `[]PolicyTargetReference` | *none* | No | Multiple targets for policy attachment. Max 16 items. Same fields as `targetRef`. |
+| `spec.cloudflareRef.name` | `string` | *none* | Yes (if cloudflareRef set) | Name of the credentials Secret. Min 1 char. |
 | `spec.cloudflareRef.namespace` | `*string` | *(policy namespace)* | No | Namespace of the credentials Secret. |
-| `spec.cloudflareRef.accountId` | `string` | -- | No | Cloudflare Account ID. |
-| `spec.cloudflareRef.accountName` | `string` | -- | No | Cloudflare Account name (resolved via API). |
+| `spec.cloudflareRef.accountId` | `string` | *none* | No | Cloudflare Account ID. |
+| `spec.cloudflareRef.accountName` | `string` | *none* | No | Cloudflare Account name (resolved via API). |
 | `spec.application.name` | `string` | *(CR name)* | No | Display name in the Cloudflare dashboard. Max 255 chars. |
 | `spec.application.domain` | `string` | *(auto-generated from routes)* | No | Protected domain. Auto-generated from target routes if omitted. |
 | `spec.application.path` | `string` | `/` | No | Path prefix to protect. |
 | `spec.application.sessionDuration` | `string` | `24h` | No | Session cookie lifetime. Format: `^[0-9]+(h|m|s)$`. |
 | `spec.application.type` | `string` | `self_hosted` | No | Application type. One of: `self_hosted`, `saas`, `ssh`, `vnc`, `browser_isolation`. |
-| `spec.application.logoUrl` | `string` | -- | No | Application logo URL in dashboard. |
+| `spec.application.logoUrl` | `string` | *none* | No | Application logo URL in dashboard. |
 | `spec.application.skipInterstitial` | `bool` | `false` | No | Bypass the Access login page for API requests. |
 | `spec.application.enableBindingCookie` | `bool` | `false` | No | Enable binding cookies for sticky sessions. |
 | `spec.application.httpOnlyCookieAttribute` | `bool` | `true` | No | Add HttpOnly attribute to session cookies. |
 | `spec.application.sameSiteCookieAttribute` | `string` | `lax` | No | Cross-site cookie behavior. One of: `strict`, `lax`, `none`. |
-| `spec.application.customDenyMessage` | `string` | -- | No | Custom message shown when access is denied. Max 1024 chars. |
-| `spec.application.customDenyUrl` | `string` | -- | No | Redirect URL when access is denied (instead of message). |
+| `spec.application.customDenyMessage` | `string` | *none* | No | Custom message shown when access is denied. Max 1024 chars. |
+| `spec.application.customDenyUrl` | `string` | *none* | No | Redirect URL when access is denied (instead of message). |
 | `spec.application.allowedIdps` | `[]string` | *(all account IdPs)* | No | Restrict which identity providers can authenticate. Values are Cloudflare IdP UUIDs. Max 25. |
 | `spec.application.autoRedirectToIdentity` | `bool` | `false` | No | Auto-redirect to the IdP when a single IdP is in `allowedIdps`. Skips the IdP selection page. |
 | `spec.application.appLauncherVisible` | `*bool` | `true` | No | Show application in the Cloudflare App Launcher. Use `false` to hide. |
@@ -46,41 +46,41 @@ Access rules are organized into implementation tiers based on identity provider 
 | `spec.application.corsHeaders.allowAllMethods` | `bool` | `false` | No | Allow all HTTP methods for CORS. |
 | `spec.application.corsHeaders.allowAllOrigins` | `bool` | `false` | No | Allow all origins for CORS. |
 | `spec.application.corsHeaders.allowCredentials` | `bool` | `false` | No | Include credentials with CORS requests. |
-| `spec.application.corsHeaders.allowedHeaders` | `[]string` | -- | No | Specific allowed headers (ignored when `allowAllHeaders` is true). Max 50. |
-| `spec.application.corsHeaders.allowedMethods` | `[]CORSAllowedMethod` | -- | No | Specific allowed methods. One of: `GET`, `POST`, `HEAD`, `PUT`, `DELETE`, `CONNECT`, `OPTIONS`, `TRACE`, `PATCH`. Max 9. Ignored when `allowAllMethods` is true. |
-| `spec.application.corsHeaders.allowedOrigins` | `[]string` | -- | No | Specific allowed origins (ignored when `allowAllOrigins` is true). Max 50. |
-| `spec.application.corsHeaders.maxAge` | `*int` | -- | No | Max seconds preflight results can be cached. 0-86400. |
+| `spec.application.corsHeaders.allowedHeaders` | `[]string` | *none* | No | Specific allowed headers (ignored when `allowAllHeaders` is true). Max 50. |
+| `spec.application.corsHeaders.allowedMethods` | `[]CORSAllowedMethod` | *none* | No | Specific allowed methods. One of: `GET`, `POST`, `HEAD`, `PUT`, `DELETE`, `CONNECT`, `OPTIONS`, `TRACE`, `PATCH`. Max 9. Ignored when `allowAllMethods` is true. |
+| `spec.application.corsHeaders.allowedOrigins` | `[]string` | *none* | No | Specific allowed origins (ignored when `allowAllOrigins` is true). Max 50. |
+| `spec.application.corsHeaders.maxAge` | `*int` | *none* | No | Max seconds preflight results can be cached. 0-86400. |
 | `spec.application.optionsPreflightBypass` | `bool` | `false` | No | Allow OPTIONS preflight to bypass Access and go directly to origin. Mutually exclusive with `corsHeaders`. |
 | `spec.application.pathCookieAttribute` | `bool` | `false` | No | Scope Access JWT cookie to application path instead of hostname. |
 | `spec.application.serviceAuth401Redirect` | `bool` | `false` | No | Return 401 instead of login redirect for Service Auth (non_identity) denials. Enable for API consumers. |
-| `spec.application.customNonIdentityDenyUrl` | `string` | -- | No | Redirect URL for non-identity (service auth) denials. Separate from `customDenyUrl`. Max 1024 chars. |
-| `spec.application.readServiceTokensFromHeader` | `string` | -- | No | Custom header name for service tokens instead of standard `CF-Access-Client-Id`/`CF-Access-Client-Secret` pair. Header value must be JSON with those keys. Max 256 chars. |
-| `spec.policies[]` | `[]AccessPolicyRule` | -- | No | Access rules evaluated in order. Max 50. See [Access Policy Rules](#specpolicies). |
-| `spec.policies[].name` | `string` | -- | Yes | Human-readable rule name. 1-255 chars. |
+| `spec.application.customNonIdentityDenyUrl` | `string` | *none* | No | Redirect URL for non-identity (service auth) denials. Separate from `customDenyUrl`. Max 1024 chars. |
+| `spec.application.readServiceTokensFromHeader` | `string` | *none* | No | Custom header name for service tokens instead of standard `CF-Access-Client-Id`/`CF-Access-Client-Secret` pair. Header value must be JSON with those keys. Max 256 chars. |
+| `spec.policies[]` | `[]AccessPolicyRule` | *none* | No | Access rules evaluated in order. Max 50. See [Access Policy Rules](#specpolicies). |
+| `spec.policies[].name` | `string` | *none* | Yes | Human-readable rule name. 1-255 chars. |
 | `spec.policies[].decision` | `string` | `allow` | No | Policy action. One of: `allow`, `deny`, `bypass`, `non_identity`. |
-| `spec.policies[].precedence` | `*int` | -- | No | Evaluation order (lower = higher priority). 1-9999. |
-| `spec.policies[].include[]` | `[]AccessRule` | -- | No | Include conditions (ANY must match). Max 25. |
-| `spec.policies[].exclude[]` | `[]AccessRule` | -- | No | Exclude conditions (if ANY match, rule does not apply). Max 25. |
-| `spec.policies[].require[]` | `[]AccessRule` | -- | No | Require conditions (ALL must match). Max 25. |
-| `spec.policies[].sessionDuration` | `string` | -- | No | Override application session duration for this rule. |
+| `spec.policies[].precedence` | `*int` | *none* | No | Evaluation order (lower = higher priority). 1-9999. |
+| `spec.policies[].include[]` | `[]AccessRule` | *none* | No | Include conditions (ANY must match). Max 25. |
+| `spec.policies[].exclude[]` | `[]AccessRule` | *none* | No | Exclude conditions (if ANY match, rule does not apply). Max 25. |
+| `spec.policies[].require[]` | `[]AccessRule` | *none* | No | Require conditions (ALL must match). Max 25. |
+| `spec.policies[].sessionDuration` | `string` | *none* | No | Override application session duration for this rule. |
 | `spec.policies[].purposeJustificationRequired` | `bool` | `false` | No | Require user to provide access justification. |
-| `spec.policies[].purposeJustificationPrompt` | `string` | -- | No | Prompt shown when justification is required. |
+| `spec.policies[].purposeJustificationPrompt` | `string` | *none* | No | Prompt shown when justification is required. |
 | `spec.policies[].approvalRequired` | `bool` | `false` | No | Require approval from specified approvers. |
-| `spec.policies[].approvalGroups[]` | `[]ApprovalGroup` | -- | No | Approval groups for approval-required policies. Max 10. |
-| `spec.policies[].approvalGroups[].emails` | `[]string` | -- | No | Approver email addresses. Max 50. At least one of `emails` or `emailDomain` required. |
-| `spec.policies[].approvalGroups[].emailDomain` | `string` | -- | No | Allow any user from this domain to approve. Max 255 chars. |
+| `spec.policies[].approvalGroups[]` | `[]ApprovalGroup` | *none* | No | Approval groups for approval-required policies. Max 10. |
+| `spec.policies[].approvalGroups[].emails` | `[]string` | *none* | No | Approver email addresses. Max 50. At least one of `emails` or `emailDomain` required. |
+| `spec.policies[].approvalGroups[].emailDomain` | `string` | *none* | No | Allow any user from this domain to approve. Max 255 chars. |
 | `spec.policies[].approvalGroups[].approvalsNeeded` | `int` | `1` | No | Number of approvals required from this group. Min 1. |
-| `spec.groupRefs[]` | `[]AccessGroupRef` | -- | No | Reference reusable Cloudflare Access Groups. Max 50. |
-| `spec.groupRefs[].name` | `string` | -- | No | Name of AccessGroup CR in same namespace (reserved for future CloudflareAccessGroup CRD). Max 253 chars. |
-| `spec.groupRefs[].cloudflareId` | `string` | -- | No | Cloudflare Access Group ID (bypasses CR lookup, works now). Max 36 chars. |
-| `spec.serviceTokens[]` | `[]ServiceTokenConfig` | -- | No | Service tokens for machine-to-machine auth. Max 10. |
-| `spec.serviceTokens[].name` | `string` | -- | Yes | Token display name. 1-255 chars. |
+| `spec.groupRefs[]` | `[]AccessGroupRef` | *none* | No | Reference reusable Cloudflare Access Groups. Max 50. |
+| `spec.groupRefs[].name` | `string` | *none* | No | Name of AccessGroup CR in same namespace (reserved for future CloudflareAccessGroup CRD). Max 253 chars. |
+| `spec.groupRefs[].cloudflareId` | `string` | *none* | No | Cloudflare Access Group ID (bypasses CR lookup, works now). Max 36 chars. |
+| `spec.serviceTokens[]` | `[]ServiceTokenConfig` | *none* | No | Service tokens for machine-to-machine auth. Max 10. |
+| `spec.serviceTokens[].name` | `string` | *none* | Yes | Token display name. 1-255 chars. |
 | `spec.serviceTokens[].duration` | `string` | `8760h` | No | Token validity period. Format: `^[0-9]+h$`. Only hours supported by Cloudflare API (e.g., `8760h` for 1 year). |
-| `spec.serviceTokens[].secretRef.name` | `string` | -- | Yes | Name of the Secret where generated credentials are stored. Min 1 char. |
+| `spec.serviceTokens[].secretRef.name` | `string` | *none* | Yes | Name of the Secret where generated credentials are stored. Min 1 char. |
 | `spec.mtls.enabled` | `bool` | `false` | No | Activate mTLS requirement for the application. |
-| `spec.mtls.rootCaSecretRef.name` | `string` | -- | Yes (if rootCaSecretRef set) | Name of the Secret containing CA certificate(s). Min 1 char. |
+| `spec.mtls.rootCaSecretRef.name` | `string` | *none* | Yes (if rootCaSecretRef set) | Name of the Secret containing CA certificate(s). Min 1 char. |
 | `spec.mtls.rootCaSecretRef.key` | `string` | `ca.crt` | No | Key within Secret for the CA certificate in PEM format. |
-| `spec.mtls.associatedHostnames` | `[]string` | -- | No | Limit mTLS requirement to specific hostnames. Max 25. |
+| `spec.mtls.associatedHostnames` | `[]string` | *none* | No | Limit mTLS requirement to specific hostnames. Max 25. |
 | `spec.mtls.ruleName` | `string` | *(CR name)* | No | Name of the mTLS rule in Cloudflare. |
 
 ## Detailed Field Documentation
@@ -89,7 +89,7 @@ Access rules are organized into implementation tiers based on identity provider 
 
 These are mutually exclusive. Exactly one must be specified.
 
-Identifies which Gateway API resources to protect. The controller extracts hostnames from the targeted resources and creates Access Applications for those hostnames. Follows the Gateway API policy attachment pattern (`LocalPolicyTargetReferenceWithSectionName`).
+Identifies which Gateway API resources to protect. The controller extracts hostnames from the targeted resources and creates Access Applications for those hostnames. Follows the [Gateway API](gateway-api-primer.md) policy attachment pattern (`LocalPolicyTargetReferenceWithSectionName`). Routes can also reference an access policy via the `cfgate.io/access-policy` annotation; see [Annotations Reference](annotations.md#cfgateio%2Faccess-policy).
 
 **Cross-namespace references:** When `namespace` is specified and differs from the policy's namespace, a ReferenceGrant must exist in the target namespace permitting CloudflareAccessPolicy resources from the policy's namespace.
 
@@ -124,7 +124,7 @@ References Cloudflare credentials for Access API operations. When omitted, the c
 
 **Credential resolution chain:**
 1. Explicit `cloudflareRef` on the CloudflareAccessPolicy
-2. Gateway target's tunnel chain (Gateway > tunnel binding > CloudflareTunnel credentials)
+2. Gateway target's tunnel chain (Gateway > tunnel binding > [CloudflareTunnel](cloudflare-tunnel.md) credentials)
 3. HTTPRoute > parentRef > Gateway > tunnel chain
 
 If no path resolves to valid credentials, the controller sets `CredentialsValid` condition to `False` with an error message.

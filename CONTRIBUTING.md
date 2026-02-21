@@ -31,23 +31,23 @@ mise run lint
 |------|-------|-------------|
 | `codegen` | `gen` | Generate DeepCopy and CRD manifests |
 | `build` | `b` | Build manager binary with version info |
-| `lint` | -- | Run golangci-lint |
+| `lint` | *none* | Run golangci-lint |
 | `lint:fix` | `fix` | Run golangci-lint with auto-fix |
 | `format` | `fmt` | Format and vet code |
 | `manifests` | `dist` | Generate release manifests to `dist/` |
-| `e2e` | -- | Run E2E tests against live Cloudflare API |
+| `e2e` | *none* | Run E2E tests against live Cloudflare API |
 | `e2e:cleanup` | `clean` | Clean orphaned E2E resources from Cloudflare |
-| `cluster:create` | -- | Create dedicated cfgate dev cluster |
-| `cluster:delete` | -- | Delete cfgate dev cluster |
-| `cluster:status` | -- | Check cfgate dev cluster status |
-| `local:install` | -- | Install Gateway API and cfgate CRDs |
-| `local:deploy` | -- | Deploy controller to current cluster (kustomize) |
-| `local:undeploy` | -- | Remove controller from current cluster |
-| `local:uninstall` | -- | Uninstall CRDs from current cluster |
-| `run` | -- | Run controller locally (outside cluster) |
+| `cluster:create` | *none* | Create dedicated cfgate dev cluster |
+| `cluster:delete` | *none* | Delete cfgate dev cluster |
+| `cluster:status` | *none* | Check cfgate dev cluster status |
+| `local:install` | *none* | Install Gateway API and cfgate CRDs |
+| `local:deploy` | *none* | Deploy controller to current cluster (kustomize) |
+| `local:undeploy` | *none* | Remove controller from current cluster |
+| `local:uninstall` | *none* | Uninstall CRDs from current cluster |
+| `run` | *none* | Run controller locally (outside cluster) |
 | `docker:build` | `db` | Build Docker image |
 | `docker:push` | `dp` | Push Docker image to registry |
-| `docker:buildx` | -- | Build multi-arch image (amd64 + arm64) |
+| `docker:buildx` | *none* | Build multi-arch image (amd64 + arm64) |
 
 ## Secrets Configuration
 

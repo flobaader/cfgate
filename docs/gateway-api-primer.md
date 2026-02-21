@@ -172,5 +172,9 @@ If you are migrating from an Ingress-based Cloudflare operator:
 ## Further Reading
 
 - [Gateway API documentation](https://gateway-api.sigs.k8s.io/)
-- [cfgate Annotations Reference](annotations.md)
-- [cfgate Troubleshooting](troubleshooting.md)
+- [CloudflareTunnel Reference](cloudflare-tunnel.md)
+- [CloudflareDNS Reference](cloudflare-dns.md)
+- [CloudflareAccessPolicy Reference](cloudflare-access-policy.md)
+- [Annotations Reference](annotations.md)
+- [Troubleshooting](troubleshooting.md)
+- [Service Mesh Integration](service-mesh.md)

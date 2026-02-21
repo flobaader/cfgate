@@ -49,6 +49,7 @@ type PolicyTargetReference struct {
 type CloudflareSecretRef struct {
 	// Name of the secret containing credentials.
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
 
 	// Namespace of the secret (defaults to policy namespace).
@@ -57,10 +58,12 @@ type CloudflareSecretRef struct {
 
 	// AccountID is the Cloudflare account ID.
 	// +optional
+	// +kubebuilder:validation:MaxLength=32
 	AccountID string `json:"accountId,omitempty"`
 
 	// AccountName is the Cloudflare account name (looked up via API).
 	// +optional
+	// +kubebuilder:validation:MaxLength=255
 	AccountName string `json:"accountName,omitempty"`
 }
 
@@ -129,12 +132,16 @@ type AccessApplication struct {
 	Name string `json:"name,omitempty"`
 
 	// Domain is the protected domain (auto-generated from routes if omitted).
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:XValidation:rule="self == '' || self.split('.').all(s, size(s) <= 63)",message="each DNS label must not exceed 63 octets (RFC 1035 section 2.3.4)"
 	Domain string `json:"domain,omitempty"`
 
 	// Path restricts protection to specific path prefix.
 	// +optional
 	// +kubebuilder:default="/"
+	// +kubebuilder:validation:MaxLength=1024
 	Path string `json:"path,omitempty"`
 
 	// SessionDuration controls session cookie lifetime.
@@ -150,6 +157,7 @@ type AccessApplication struct {
 
 	// LogoURL is the application logo in dashboard.
 	// +optional
+	// +kubebuilder:validation:MaxLength=1024
 	LogoURL string `json:"logoUrl,omitempty"`
 
 	// SkipInterstitial bypasses the Access login page for API requests.
@@ -248,6 +256,8 @@ type AccessApplication struct {
 // in precedence order (lower precedence = higher priority). Each rule contains Include
 // (ANY must match), Exclude (if ANY match, rule does not apply), and Require (ALL must match)
 // conditions.
+//
+// +kubebuilder:validation:XValidation:rule="self.decision in ['bypass', 'non_identity'] || size(self.include) > 0",message="include rules are required for allow and deny decisions"
 type AccessPolicyRule struct {
 	// Name is a human-readable identifier.
 	// +kubebuilder:validation:MinLength=1
@@ -282,6 +292,8 @@ type AccessPolicyRule struct {
 
 	// SessionDuration overrides application session duration for this rule.
 	// +optional
+	// +kubebuilder:validation:MaxLength=10
+	// +kubebuilder:validation:Pattern=`^[0-9]+(h|m|s)$`
 	SessionDuration string `json:"sessionDuration,omitempty"`
 
 	// PurposeJustificationRequired requires user to provide justification.
@@ -291,6 +303,7 @@ type AccessPolicyRule struct {
 
 	// PurposeJustificationPrompt is the prompt shown to user.
 	// +optional
+	// +kubebuilder:validation:MaxLength=1024
 	PurposeJustificationPrompt string `json:"purposeJustificationPrompt,omitempty"`
 
 	// ApprovalRequired requires approval from specific users.
@@ -493,8 +506,9 @@ type AccessEmailListRule struct {
 // domain. Useful for allowing entire organizations or teams. Maps to cloudflare-go DomainRule.
 type AccessEmailDomainRule struct {
 	// Domain suffix (e.g., "example.com").
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
 	Domain string `json:"domain"`
 }
 
@@ -569,8 +583,9 @@ type ApprovalGroup struct {
 	Emails []string `json:"emails,omitempty"`
 
 	// EmailDomain allows any user from domain to approve.
+	// Max 253: RFC 1035 section 2.3.4 FQDN presentation-format limit.
 	// +optional
-	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:MaxLength=253
 	EmailDomain string `json:"emailDomain,omitempty"`
 
 	// ApprovalsNeeded is number of approvals required.
@@ -608,6 +623,7 @@ type ServiceTokenConfig struct {
 type ServiceTokenSecretRef struct {
 	// Name of the Secret.
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
 }
 
@@ -633,6 +649,7 @@ type MTLSConfig struct {
 	// RuleName is the name of the mTLS rule in Cloudflare.
 	// Defaults to CR name if omitted.
 	// +optional
+	// +kubebuilder:validation:MaxLength=255
 	RuleName string `json:"ruleName,omitempty"`
 }
 
@@ -643,10 +660,12 @@ type MTLSConfig struct {
 type CASecretRef struct {
 	// Name of the Secret.
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
 
 	// Key within Secret (defaults to ca.crt).
 	// +kubebuilder:default="ca.crt"
+	// +kubebuilder:validation:MaxLength=253
 	Key string `json:"key,omitempty"`
 }
 
