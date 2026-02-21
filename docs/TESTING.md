@@ -214,7 +214,7 @@ Eventually(func(g Gomega) {
 }, DefaultTimeout, DefaultInterval).Should(Succeed())
 ```
 
-Never use bare `Get` followed by `Expect(Update).To(Succeed())` -- the controller will race you.
+Never use bare `Get` followed by `Expect(Update).To(Succeed())`; the controller will race you.
 
 ### Wait Helpers
 
@@ -266,7 +266,7 @@ Eight test contexts cover 45 assertions:
 | Cross-CRD consistency | INV-X1..X3 | DNS/tunnel domain, CNAME content, credential inheritance chain |
 | Deletion cleanup | INV-DEL1..DEL4 | Namespace trigger, tunnel delete, DNS removal, Access app removal |
 
-The invariant test context is `Ordered` -- specs share a tunnel, GatewayClass, and Gateway. A failure in an early spec cascades to skip all subsequent specs in the context.
+The invariant test context is `Ordered`; specs share a tunnel, GatewayClass, and Gateway. A failure in an early spec cascades to skip all subsequent specs in the context.
 
 ## Skipped Tests
 

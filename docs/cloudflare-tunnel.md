@@ -19,30 +19,30 @@ Tunnel name resolution is idempotent. The controller resolves the tunnel by name
 
 | Field | Type | Default | Required | Description |
 |-------|------|---------|----------|-------------|
-| `spec.tunnel.name` | `string` | -- | Yes | Tunnel name in Cloudflare. Idempotent: creates if absent, adopts if existing. Must be 1-63 chars, lowercase alphanumeric with hyphens, matching `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
-| `spec.cloudflare.accountId` | `string` | -- | No | Cloudflare Account ID. Max 32 chars. Either `accountId` or `accountName` must be specified. |
-| `spec.cloudflare.accountName` | `string` | -- | No | Cloudflare Account name. Resolved via API lookup (requires Account Settings Read permission). Max 255 chars. Either `accountId` or `accountName` must be specified. |
-| `spec.cloudflare.secretRef.name` | `string` | -- | Yes | Name of the Secret containing the Cloudflare API token. 1-253 chars. |
+| `spec.tunnel.name` | `string` | *none* | Yes | Tunnel name in Cloudflare. Idempotent: creates if absent, adopts if existing. Must be 1-63 chars, lowercase alphanumeric with hyphens, matching `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`. |
+| `spec.cloudflare.accountId` | `string` | *none* | No | Cloudflare Account ID. Max 32 chars. Either `accountId` or `accountName` must be specified. |
+| `spec.cloudflare.accountName` | `string` | *none* | No | Cloudflare Account name. Resolved via API lookup (requires Account Settings Read permission). Max 255 chars. Either `accountId` or `accountName` must be specified. |
+| `spec.cloudflare.secretRef.name` | `string` | *none* | Yes | Name of the Secret containing the Cloudflare API token. 1-253 chars. |
 | `spec.cloudflare.secretRef.namespace` | `string` | *(resource namespace)* | No | Namespace of the credentials Secret. Defaults to the tunnel's namespace. Max 63 chars. |
 | `spec.cloudflare.secretKeys.apiToken` | `string` | `CLOUDFLARE_API_TOKEN` | No | Key name within the Secret for the Cloudflare API token. Max 253 chars. |
 | `spec.cloudflared.replicas` | `int32` | `2` | No | Number of cloudflared replicas. Min 1, max 10. Each replica establishes an independent connection for high availability. |
 | `spec.cloudflared.image` | `string` | `cloudflare/cloudflared:latest` | No | Container image for the cloudflared daemon. Max 255 chars. |
 | `spec.cloudflared.imagePullPolicy` | `string` | `IfNotPresent` | No | Image pull policy. One of: `Always`, `Never`, `IfNotPresent`. |
 | `spec.cloudflared.protocol` | `string` | `auto` | No | Tunnel transport protocol. One of: `auto`, `quic`, `http2`. |
-| `spec.cloudflared.resources` | `corev1.ResourceRequirements` | -- | No | Resource requests and limits for cloudflared containers. Standard Kubernetes resource spec. |
-| `spec.cloudflared.nodeSelector` | `map[string]string` | -- | No | Node selector for cloudflared pod scheduling. Max 50 entries. |
-| `spec.cloudflared.tolerations` | `[]corev1.Toleration` | -- | No | Tolerations for cloudflared pods. Max 20 items. |
-| `spec.cloudflared.podAnnotations` | `map[string]string` | -- | No | Annotations added to cloudflared pods. Max 50 entries. |
-| `spec.cloudflared.extraArgs` | `[]string` | -- | No | Additional CLI arguments passed to cloudflared. Max 20 items. |
+| `spec.cloudflared.resources` | `corev1.ResourceRequirements` | *none* | No | Resource requests and limits for cloudflared containers. Standard Kubernetes resource spec. |
+| `spec.cloudflared.nodeSelector` | `map[string]string` | *none* | No | Node selector for cloudflared pod scheduling. Max 50 entries. |
+| `spec.cloudflared.tolerations` | `[]corev1.Toleration` | *none* | No | Tolerations for cloudflared pods. Max 20 items. |
+| `spec.cloudflared.podAnnotations` | `map[string]string` | *none* | No | Annotations added to cloudflared pods. Max 50 entries. |
+| `spec.cloudflared.extraArgs` | `[]string` | *none* | No | Additional CLI arguments passed to cloudflared. Max 20 items. |
 | `spec.cloudflared.metrics.enabled` | `bool` | `true` | No | Enables the Prometheus-compatible metrics endpoint on cloudflared pods. |
 | `spec.cloudflared.metrics.port` | `int32` | `44483` | No | Port for the metrics endpoint. Min 1, max 65535. Metrics available at `http://localhost:{port}/metrics`. |
 | `spec.originDefaults.connectTimeout` | `string` | `30s` | No | Timeout for connecting to origin/backend services. Format: `^[0-9]+(s|m|h)$`. |
 | `spec.originDefaults.noTLSVerify` | `bool` | `false` | No | Disables TLS certificate verification for origin connections. Use with caution in production. |
 | `spec.originDefaults.http2Origin` | `bool` | `false` | No | Enables HTTP/2 for connections to origin services. |
-| `spec.originDefaults.caPoolSecretRef.name` | `string` | -- | Yes (if caPoolSecretRef set) | Name of the Secret containing CA certificates for origin TLS verification. 1-253 chars. |
+| `spec.originDefaults.caPoolSecretRef.name` | `string` | *none* | Yes (if caPoolSecretRef set) | Name of the Secret containing CA certificates for origin TLS verification. 1-253 chars. |
 | `spec.originDefaults.caPoolSecretRef.key` | `string` | `ca.crt` | No | Key within the Secret containing the CA certificate chain in PEM format. Max 253 chars. |
 | `spec.fallbackTarget` | `string` | `http_status:404` | No | Default service for requests that do not match any ingress rule. |
-| `spec.fallbackCredentialsRef.name` | `string` | -- | Yes (if fallbackCredentialsRef set) | Name of the Secret containing fallback Cloudflare API credentials. 1-253 chars. |
+| `spec.fallbackCredentialsRef.name` | `string` | *none* | Yes (if fallbackCredentialsRef set) | Name of the Secret containing fallback Cloudflare API credentials. 1-253 chars. |
 | `spec.fallbackCredentialsRef.namespace` | `string` | *(resource namespace)* | No | Namespace of the fallback credentials Secret. Max 63 chars. |
 
 ## Detailed Field Documentation

@@ -4,16 +4,16 @@
 
 [![Build Status](https://img.shields.io/github/actions/workflow/status/cfgate/cfgate/ci.yml?style=flat)](https://github.com/cfgate/cfgate/actions/workflows/ci.yml) [![Go Report Card](https://goreportcard.com/badge/github.com/cfgate/cfgate)](https://goreportcard.com/report/github.com/cfgate/cfgate) [![Go Reference](https://pkg.go.dev/badge/github.com/cfgate/cfgate.svg)](https://pkg.go.dev/cfgate.io/cfgate/)
 
-cfgate is a Kubernetes operator that manages Cloudflare Tunnels, DNS records, and Access policies through three custom resources. It uses [Gateway API](https://gateway-api.sigs.k8s.io/) — the CNCF standard replacing Ingress — so routing configuration works the same as Envoy, Istio, or Cilium. Clusters running cfgate need no public IP, no ingress controller, and no load balancer. Traffic reaches services through Cloudflare Tunnels: outbound-only connections from the cluster to Cloudflare's edge.
+cfgate is a Kubernetes operator that manages Cloudflare Tunnels, DNS records, and Access policies through three custom resources. It uses [Gateway API](https://gateway-api.sigs.k8s.io/), the CNCF standard replacing Ingress, so routing configuration works the same as Envoy, Istio, or Cilium. Clusters running cfgate need no public IP, no ingress controller, and no load balancer. Traffic reaches services through Cloudflare Tunnels: outbound-only connections from the cluster to Cloudflare's edge.
 
 Gateway API is the Kubernetes successor to Ingress. If you're coming from Ingress, see the [Gateway API Primer](docs/gateway-api-primer.md).
 
 ### Why cfgate?
 
-- **One operator, three concerns.** CloudflareTunnel, CloudflareDNS, and CloudflareAccessPolicy each manage a distinct piece of Cloudflare infrastructure as a Kubernetes CRD. Tunnels, DNS records, and zero-trust access policies all live in version-controlled YAML instead of the Cloudflare dashboard.
-- **No public attack surface.** Cloudflare Tunnels establish outbound-only connections from the cluster to Cloudflare's edge. Services are never exposed via public IP or load balancer.
-- **Gateway API native.** Built on the [Gateway API](https://gateway-api.sigs.k8s.io/) standard, not a proprietary abstraction. Existing community operators use the deprecated Ingress API and lack Access policy management.
-- **Composable by design.** Each CRD operates independently. Use all three together or pick the ones you need — a tunnel without DNS sync, DNS without Access, or the full stack.
+- **Three CRDs for tunnels, DNS, and access.** CloudflareTunnel, CloudflareDNS, and CloudflareAccessPolicy each manage a distinct piece of Cloudflare infrastructure as a Kubernetes CRD. Tunnels, DNS records, and zero-trust access policies all live in version-controlled YAML instead of the Cloudflare dashboard.
+- **Outbound-only tunnel connections.** Cloudflare Tunnels establish outbound-only connections from the cluster to Cloudflare's edge. Services are never exposed via public IP or load balancer.
+- **Built on Gateway API.** Uses the [Gateway API](https://gateway-api.sigs.k8s.io/) standard, not a proprietary abstraction. Existing community operators use the deprecated Ingress API and lack Access policy management.
+- **Independent, composable resources.** Each CRD operates independently. Use all three together or pick the ones you need: a tunnel without DNS sync, DNS without Access, or the full stack.
 
 ## How It Works
 

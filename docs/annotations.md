@@ -11,14 +11,14 @@ Per-route configuration applied to HTTPRoute, TCPRoute, UDPRoute, and GRPCRoute 
 | `cfgate.io/origin-protocol` | `http`, `https`, `tcp`\*, `udp`\* | Route-type dependent | Backend protocol |
 | `cfgate.io/origin-ssl-verify` | `true`, `false` | `true` | TLS certificate verification |
 | `cfgate.io/origin-connect-timeout` | Duration string (`30s`, `1m`) | `30s` | Origin connection timeout |
-| `cfgate.io/origin-http-host-header` | Hostname string | -- | Host header override sent to origin |
-| `cfgate.io/origin-server-name` | Hostname string | -- | TLS SNI server name |
-| `cfgate.io/origin-ca-pool` | File path string | -- | CA certificate pool path |
+| `cfgate.io/origin-http-host-header` | Hostname string | *none* | Host header override sent to origin |
+| `cfgate.io/origin-server-name` | Hostname string | *none* | TLS SNI server name |
+| `cfgate.io/origin-ca-pool` | File path string | *none* | CA certificate pool path |
 | `cfgate.io/origin-http2` | `true`, `false` | `false` | HTTP/2 to origin |
 | `cfgate.io/ttl` | `1`-`86400` | `1` (auto) | DNS record TTL in seconds |
 | `cfgate.io/cloudflare-proxied` | `true`, `false` | `true` | Cloudflare proxy (orange cloud) |
-| `cfgate.io/access-policy` | `name` or `namespace/name` | -- | References a CloudflareAccessPolicy |
-| `cfgate.io/hostname` | RFC 1123 hostname | -- | Override or set hostname for the route |
+| `cfgate.io/access-policy` | `name` or `namespace/name` | *none* | References a CloudflareAccessPolicy |
+| `cfgate.io/hostname` | RFC 1123 hostname | *none* | Override or set hostname for the route |
 \*`tcp` and `udp` protocol values are accepted but TCPRoute and UDPRoute controllers are stubs, planned for v0.2.0.
 
 **Default for `cfgate.io/origin-protocol`:** `http` for HTTPRoute, `tcp` for TCPRoute, `udp` for UDPRoute. GRPCRoute defaults to `http` (cloudflared handles gRPC over HTTP).
@@ -346,7 +346,7 @@ Controls what happens to Cloudflare-side resources when the Kubernetes resource 
 # Annotate before deletion to orphan the tunnel
 kubectl annotate cloudflaretunnel my-tunnel cfgate.io/deletion-policy=orphan
 
-# Now delete -- tunnel stays in Cloudflare, K8s resource removed
+# Now delete: tunnel stays in Cloudflare, K8s resource removed
 kubectl delete cloudflaretunnel my-tunnel
 ```
 

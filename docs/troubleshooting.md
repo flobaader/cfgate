@@ -424,4 +424,4 @@ kubectl logs -n cfgate-system deploy/controller-manager -c manager
 
 ## See Also
 
-- [Service Mesh Integration](service-mesh.md) — running cfgate alongside Istio, Envoy Gateway, or other Gateway API implementations; suppressing Kiali KIA1504 warnings
+- [Service Mesh Integration](service-mesh.md): running cfgate alongside Istio, Envoy Gateway, or other Gateway API implementations; suppressing Kiali KIA1504 warnings

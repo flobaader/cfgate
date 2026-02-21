@@ -19,21 +19,21 @@ When using `tunnelRef`, credentials are inherited from the referenced [Cloudflar
 
 | Field | Type | Default | Required | Description |
 |-------|------|---------|----------|-------------|
-| `spec.tunnelRef.name` | `string` | -- | Yes (if tunnelRef set) | Name of the CloudflareTunnel resource. 1-63 chars. |
+| `spec.tunnelRef.name` | `string` | *none* | Yes (if tunnelRef set) | Name of the CloudflareTunnel resource. 1-63 chars. |
 | `spec.tunnelRef.namespace` | `string` | *(resource namespace)* | No | Namespace of the CloudflareTunnel. Max 63 chars. |
-| `spec.externalTarget.type` | `RecordType` | -- | Yes (if externalTarget set) | DNS record type: `CNAME`, `A`, or `AAAA`. |
-| `spec.externalTarget.value` | `string` | -- | Yes (if externalTarget set) | Target value: domain name for CNAME, IP address for A/AAAA. 1-255 chars. |
-| `spec.zones[]` | `[]DNSZoneConfig` | -- | Yes | DNS zones to manage. Min 1, max 10. |
-| `spec.zones[].name` | `string` | -- | Yes | Zone domain name (e.g., `example.com`). 1-255 chars. |
-| `spec.zones[].id` | `string` | -- | No | Explicit Cloudflare zone ID. When provided, skips API zone lookup. Max 32 chars. |
+| `spec.externalTarget.type` | `RecordType` | *none* | Yes (if externalTarget set) | DNS record type: `CNAME`, `A`, or `AAAA`. |
+| `spec.externalTarget.value` | `string` | *none* | Yes (if externalTarget set) | Target value: domain name for CNAME, IP address for A/AAAA. 1-255 chars. |
+| `spec.zones[]` | `[]DNSZoneConfig` | *none* | Yes | DNS zones to manage. Min 1, max 10. |
+| `spec.zones[].name` | `string` | *none* | Yes | Zone domain name (e.g., `example.com`). 1-255 chars. |
+| `spec.zones[].id` | `string` | *none* | No | Explicit Cloudflare zone ID. When provided, skips API zone lookup. Max 32 chars. |
 | `spec.zones[].proxied` | `*bool` | *(inherits from `spec.defaults.proxied`)* | No | Per-zone proxy override. `true` enables Cloudflare proxy (orange cloud), `false` DNS-only. `nil` inherits from `spec.defaults.proxied`. |
 | `spec.policy` | `DNSPolicy` | `sync` | No | DNS record lifecycle policy. One of: `sync`, `upsert-only`, `create-only`. |
 | `spec.source.gatewayRoutes.enabled` | `bool` | `true` | No | Enables automatic hostname discovery from Gateway API routes. |
-| `spec.source.gatewayRoutes.annotationFilter` | `string` | -- | No | Only sync routes matching this annotation (key=value format). Max 255 chars. |
-| `spec.source.gatewayRoutes.namespaceSelector.matchLabels` | `map[string]string` | -- | No | Select namespaces by label. Max 10 entries. At least one of `matchLabels` or `matchNames` required when `namespaceSelector` is set. |
-| `spec.source.gatewayRoutes.namespaceSelector.matchNames` | `[]string` | -- | No | Select namespaces by name. Max 50 items. At least one of `matchLabels` or `matchNames` required when `namespaceSelector` is set. |
-| `spec.source.explicit[]` | `[]DNSExplicitHostname` | -- | No | Explicitly defined hostnames to sync. Max 100 items. |
-| `spec.source.explicit[].hostname` | `string` | -- | Yes | DNS hostname to create. 1-255 chars. |
+| `spec.source.gatewayRoutes.annotationFilter` | `string` | *none* | No | Only sync routes matching this annotation (key=value format). Max 255 chars. |
+| `spec.source.gatewayRoutes.namespaceSelector.matchLabels` | `map[string]string` | *none* | No | Select namespaces by label. Max 10 entries. At least one of `matchLabels` or `matchNames` required when `namespaceSelector` is set. |
+| `spec.source.gatewayRoutes.namespaceSelector.matchNames` | `[]string` | *none* | No | Select namespaces by name. Max 50 items. At least one of `matchLabels` or `matchNames` required when `namespaceSelector` is set. |
+| `spec.source.explicit[]` | `[]DNSExplicitHostname` | *none* | No | Explicitly defined hostnames to sync. Max 100 items. |
+| `spec.source.explicit[].hostname` | `string` | *none* | Yes | DNS hostname to create. 1-255 chars. |
 | `spec.source.explicit[].target` | `string` | *(tunnel domain when tunnelRef set)* | No | CNAME target. Supports `{{ .TunnelDomain }}` template variable. Max 255 chars. |
 | `spec.source.explicit[].proxied` | `*bool` | *(inherits from zone or defaults)* | No | Per-hostname Cloudflare proxy setting. `nil` inherits from zone then defaults. |
 | `spec.source.explicit[].ttl` | `int32` | `1` | No | DNS record TTL in seconds. `1` = auto (Cloudflare-managed, typically 300s). Explicit range: 60-86400. |
@@ -42,17 +42,17 @@ When using `tunnelRef`, credentials are inherited from the referenced [Cloudflar
 | `spec.ownership.ownerId` | `string` | *(namespace/name of the CloudflareDNS resource)* | No | Cluster/installation identifier for TXT ownership records. Max 253 chars. Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(/[a-z0-9]([-a-z0-9]*[a-z0-9])?)?$`. |
 | `spec.ownership.txtRecord.enabled` | `*bool` | `true` (nil defaults to true) | No | Enables TXT record-based ownership tracking. |
 | `spec.ownership.txtRecord.prefix` | `string` | `_cfgate` | No | Prefix for TXT record names. Max 63 chars. |
-| `spec.ownership.comment.enabled` | `bool` | `false` | No | **Deprecated (alpha.13).** Ignored — the controller always writes a fixed comment. Will be removed in alpha.14. |
-| `spec.ownership.comment.template` | `string` | `managed by cfgate` | No | **Deprecated (alpha.13).** Ignored — the controller always uses `"managed by cfgate"`. Will be removed in alpha.14. |
+| `spec.ownership.comment.enabled` | `bool` | `false` | No | **Deprecated (alpha.13).** Ignored; the controller always writes a fixed comment. Will be removed in alpha.14. |
+| `spec.ownership.comment.template` | `string` | `managed by cfgate` | No | **Deprecated (alpha.13).** Ignored; the controller always uses `"managed by cfgate"`. Will be removed in alpha.14. |
 | `spec.cleanupPolicy.deleteOnRouteRemoval` | `*bool` | `true` (nil defaults to true) | No | Delete DNS records when the source route is deleted. |
 | `spec.cleanupPolicy.deleteOnResourceRemoval` | `*bool` | `true` (nil defaults to true) | No | Delete DNS records when the CloudflareDNS resource itself is deleted (finalizer cleanup). |
 | `spec.cleanupPolicy.onlyManaged` | `*bool` | `true` (nil defaults to true) | No | Only delete records that were created by cfgate, verified via ownership tracking. |
-| `spec.cloudflare.accountId` | `string` | -- | No | Cloudflare Account ID. Required when using `externalTarget`. Inherited from tunnel when using `tunnelRef`. Max 32 chars. |
-| `spec.cloudflare.accountName` | `string` | -- | No | Cloudflare Account name (resolved via API). Max 255 chars. |
-| `spec.cloudflare.secretRef.name` | `string` | -- | Yes (if cloudflare set) | Name of the credentials Secret. 1-253 chars. |
+| `spec.cloudflare.accountId` | `string` | *none* | No | Cloudflare Account ID. Required when using `externalTarget`. Inherited from tunnel when using `tunnelRef`. Max 32 chars. |
+| `spec.cloudflare.accountName` | `string` | *none* | No | Cloudflare Account name (resolved via API). Max 255 chars. |
+| `spec.cloudflare.secretRef.name` | `string` | *none* | Yes (if cloudflare set) | Name of the credentials Secret. 1-253 chars. |
 | `spec.cloudflare.secretRef.namespace` | `string` | *(resource namespace)* | No | Namespace of the credentials Secret. Max 63 chars. |
 | `spec.cloudflare.secretKeys.apiToken` | `string` | `CLOUDFLARE_API_TOKEN` | No | Key name within the Secret for the API token. Max 253 chars. |
-| `spec.fallbackCredentialsRef.name` | `string` | -- | Yes (if fallbackCredentialsRef set) | Name of the fallback credentials Secret. 1-253 chars. |
+| `spec.fallbackCredentialsRef.name` | `string` | *none* | Yes (if fallbackCredentialsRef set) | Name of the fallback credentials Secret. 1-253 chars. |
 | `spec.fallbackCredentialsRef.namespace` | `string` | *(resource namespace)* | No | Namespace of the fallback credentials Secret. Max 63 chars. |
 
 ## Detailed Field Documentation
@@ -193,7 +193,7 @@ This pattern is compatible with external-dns. The TXT record name is `{prefix}.{
 
 **Comment ownership (cosmetic only):** The controller writes a fixed `"managed by cfgate"` comment on all managed DNS records. This is informational only and is not used for ownership verification or conflict detection. TXT record ownership is the sole mechanism for multi-cluster safety.
 
-> **Deprecation notice (alpha.13):** The `spec.ownership.comment.enabled` and `spec.ownership.comment.template` fields are deprecated and ignored. The controller always writes `"managed by cfgate"` regardless of these values. Both fields will be removed in **v0.1.0-alpha.14**. To migrate, remove the `comment` section from `spec.ownership` in your CloudflareDNS resources. No behavioral change occurs — the hardcoded value matches the previous defaults.
+> **Deprecation notice (alpha.13):** The `spec.ownership.comment.enabled` and `spec.ownership.comment.template` fields are deprecated and ignored. The controller always writes `"managed by cfgate"` regardless of these values. Both fields will be removed in **v0.1.0-alpha.14**. To migrate, remove the `comment` section from `spec.ownership` in your CloudflareDNS resources. No behavioral change occurs; the hardcoded value matches the previous defaults.
 
 **`ownerId`:** Identifies this installation. Defaults to `{namespace}/{name}` of the CloudflareDNS resource. Override this when you need explicit control over the identity (e.g., migrating between CloudflareDNS resources).
 
