@@ -35,6 +35,7 @@ type TunnelIdentity struct {
 //   - Account -> Account Settings -> Read (required if using AccountName)
 //
 // +kubebuilder:validation:XValidation:rule="has(self.accountId) || has(self.accountName)",message="either accountId or accountName must be specified"
+// +kubebuilder:validation:XValidation:rule="!has(self.accountId) || self.accountId.matches('^[a-f0-9]{32}$')",message="accountId must be a 32-character hex string"
 type CloudflareConfig struct {
 	// AccountID is the Cloudflare Account ID.
 	// +optional
@@ -240,6 +241,7 @@ type CloudflareTunnelSpec struct {
 
 	// FallbackTarget is the service for unmatched requests.
 	// +kubebuilder:default="http_status:404"
+	// +kubebuilder:validation:MaxLength=255
 	FallbackTarget string `json:"fallbackTarget,omitempty"`
 
 	// FallbackCredentialsRef references a secret containing fallback Cloudflare API credentials.

@@ -188,6 +188,7 @@ spec:
                   domain:
                     description: Domain is the protected domain (auto-generated from
                       routes if omitted).
+                    maxLength: 255
                     type: string
                   enableBindingCookie:
                     default: false
@@ -201,6 +202,7 @@ spec:
                     type: boolean
                   logoUrl:
                     description: LogoURL is the application logo in dashboard.
+                    maxLength: 1024
                     type: string
                   name:
                     description: |-
@@ -217,6 +219,7 @@ spec:
                   path:
                     default: /
                     description: Path restricts protection to specific path prefix.
+                    maxLength: 1024
                     type: string
                   pathCookieAttribute:
                     description: |-
@@ -279,13 +282,16 @@ spec:
                 properties:
                   accountId:
                     description: AccountID is the Cloudflare account ID.
+                    maxLength: 32
                     type: string
                   accountName:
                     description: AccountName is the Cloudflare account name (looked
                       up via API).
+                    maxLength: 255
                     type: string
                   name:
                     description: Name of the secret containing credentials.
+                    maxLength: 253
                     minLength: 1
                     type: string
                   namespace:
@@ -339,9 +345,11 @@ spec:
                       key:
                         default: ca.crt
                         description: Key within Secret (defaults to ca.crt).
+                        maxLength: 253
                         type: string
                       name:
                         description: Name of the Secret.
+                        maxLength: 253
                         minLength: 1
                         type: string
                     required:
@@ -351,6 +359,7 @@ spec:
                     description: |-
                       RuleName is the name of the mTLS rule in Cloudflare.
                       Defaults to CR name if omitted.
+                    maxLength: 255
                     type: string
                 required:
                 - enabled
@@ -804,6 +813,7 @@ spec:
                     purposeJustificationPrompt:
                       description: PurposeJustificationPrompt is the prompt shown
                         to user.
+                      maxLength: 1024
                       type: string
                     purposeJustificationRequired:
                       default: false
@@ -1002,11 +1012,17 @@ spec:
                     sessionDuration:
                       description: SessionDuration overrides application session duration
                         for this rule.
+                      maxLength: 10
+                      pattern: ^[0-9]+(h|m|s)$
                       type: string
                   required:
                   - decision
                   - name
                   type: object
+                  x-kubernetes-validations:
+                  - message: include rules are required for allow and deny decisions
+                    rule: self.decision in ['bypass', 'non_identity'] || size(self.include)
+                      > 0
                 maxItems: 50
                 type: array
               serviceTokens:
@@ -1036,6 +1052,7 @@ spec:
                       properties:
                         name:
                           description: Name of the Secret.
+                          maxLength: 253
                           minLength: 1
                           type: string
                       required:

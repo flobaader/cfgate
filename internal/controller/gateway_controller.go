@@ -22,6 +22,7 @@ import (
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	cfgatev1alpha1 "cfgate.io/cfgate/api/v1alpha1"
+	"cfgate.io/cfgate/internal/controller/status"
 	"cfgate.io/cfgate/internal/controller/annotations"
 )
 
@@ -91,7 +92,7 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		meta.SetStatusCondition(&gateway.Status.Conditions, metav1.Condition{
 			Type:               string(gwapiv1.GatewayConditionAccepted),
 			Status:             metav1.ConditionFalse,
-			Reason:             "MissingTunnelRef",
+			Reason:             status.ReasonMissingTunnelRef,
 			Message:            "cfgate.io/tunnel-ref annotation is required",
 			ObservedGeneration: gateway.Generation,
 		})
@@ -108,7 +109,7 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		meta.SetStatusCondition(&gateway.Status.Conditions, metav1.Condition{
 			Type:               string(gwapiv1.GatewayConditionAccepted),
 			Status:             metav1.ConditionFalse,
-			Reason:             "TunnelNotFound",
+			Reason:             status.ReasonTunnelNotFound,
 			Message:            err.Error(),
 			ObservedGeneration: gateway.Generation,
 		})
@@ -218,7 +219,7 @@ func (r *GatewayReconciler) updateGatewayStatus(ctx context.Context, gateway *gw
 		meta.SetStatusCondition(&gateway.Status.Conditions, metav1.Condition{
 			Type:               string(gwapiv1.GatewayConditionAccepted),
 			Status:             metav1.ConditionTrue,
-			Reason:             "TunnelReady",
+			Reason:             status.ReasonTunnelReady,
 			Message:            "Gateway is bound to tunnel",
 			ObservedGeneration: gateway.Generation,
 		})
@@ -233,14 +234,14 @@ func (r *GatewayReconciler) updateGatewayStatus(ctx context.Context, gateway *gw
 		meta.SetStatusCondition(&gateway.Status.Conditions, metav1.Condition{
 			Type:               string(gwapiv1.GatewayConditionAccepted),
 			Status:             metav1.ConditionTrue,
-			Reason:             "TunnelPending",
+			Reason:             status.ReasonTunnelPending,
 			Message:            "Waiting for tunnel to be ready",
 			ObservedGeneration: gateway.Generation,
 		})
 		meta.SetStatusCondition(&gateway.Status.Conditions, metav1.Condition{
 			Type:               string(gwapiv1.GatewayConditionProgrammed),
 			Status:             metav1.ConditionFalse,
-			Reason:             "TunnelNotReady",
+			Reason:             status.ReasonTunnelNotReady,
 			Message:            "Tunnel is not ready",
 			ObservedGeneration: gateway.Generation,
 		})
@@ -294,6 +295,14 @@ func (r *GatewayReconciler) countAttachedRoutes(ctx context.Context, gateway *gw
 	var count int32
 	for _, route := range routes.Items {
 		for _, parentRef := range route.Spec.ParentRefs {
+			// Skip non-Gateway parentRefs (consistent with findGatewaysForHTTPRoute guard)
+			if parentRef.Group != nil && string(*parentRef.Group) != gwapiv1.GroupName {
+				continue
+			}
+			if parentRef.Kind != nil && string(*parentRef.Kind) != "Gateway" {
+				continue
+			}
+
 			parentNS := route.Namespace
 			if parentRef.Namespace != nil {
 				parentNS = string(*parentRef.Namespace)
@@ -327,8 +336,6 @@ func (r *GatewayReconciler) findGatewaysForTunnel(ctx context.Context, obj clien
 		return nil
 	}
 
-	tunnelRef := fmt.Sprintf("%s/%s", tunnel.Namespace, tunnel.Name)
-
 	var gateways gwapiv1.GatewayList
 	if err := r.List(ctx, &gateways); err != nil {
 		return nil
@@ -336,7 +343,16 @@ func (r *GatewayReconciler) findGatewaysForTunnel(ctx context.Context, obj clien
 
 	var requests []reconcile.Request
 	for _, gw := range gateways.Items {
-		if annotations.GetAnnotation(&gw, annotations.AnnotationTunnelRef) == tunnelRef {
+		ref := annotations.GetAnnotation(&gw, annotations.AnnotationTunnelRef)
+		if ref == "" {
+			continue
+		}
+		// Parse annotation to handle both "name" and "namespace/name" formats
+		ns, name, err := annotations.ParseNamespacedName(ref, gw.Namespace)
+		if err != nil {
+			continue
+		}
+		if name == tunnel.Name && ns == tunnel.Namespace {
 			requests = append(requests, reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Namespace: gw.Namespace,

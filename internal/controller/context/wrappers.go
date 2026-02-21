@@ -289,19 +289,6 @@ func (dc *DNSContext) ShouldCreateTXTRecords() bool {
 	return *dc.Spec.Ownership.TXTRecord.Enabled
 }
 
-// ShouldUseCommentOwnership returns true if comment-based ownership is enabled.
-func (dc *DNSContext) ShouldUseCommentOwnership() bool {
-	return dc.Spec.Ownership.Comment.Enabled
-}
-
-// GetCommentTemplate returns the comment template for ownership.
-func (dc *DNSContext) GetCommentTemplate() string {
-	if dc.Spec.Ownership.Comment.Template == "" {
-		return "managed by cfgate"
-	}
-	return dc.Spec.Ownership.Comment.Template
-}
-
 // ShouldDeleteOnRouteRemoval returns true if records should be deleted when routes are removed.
 // nil defaults to true (delete by default).
 func (dc *DNSContext) ShouldDeleteOnRouteRemoval() bool {

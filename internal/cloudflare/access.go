@@ -929,13 +929,25 @@ func (s *AccessService) EnsureServiceToken(ctx context.Context, accountID string
 				return nil, fmt.Errorf("failed to rotate service token: %w", err)
 			}
 
-			// Store the new secret
+			// Store the new secret. If this fails, the old secret is already
+			// invalidated by rotation. Delete the token so the next reconcile
+			// creates a fresh token+secret pair.
 			if secretWriter != nil {
 				if err := secretWriter.WriteSecret(ctx, params.Name, map[string][]byte{
 					"CF_ACCESS_CLIENT_ID":     []byte(rotated.ClientID),
 					"CF_ACCESS_CLIENT_SECRET": []byte(rotated.ClientSecret),
 				}); err != nil {
-					return nil, fmt.Errorf("failed to store service token secret: %w", err)
+					s.log.Info("secret write failed after token rotation, deleting token to allow retry on next reconcile",
+						"tokenId", rotated.ID,
+						"tokenName", rotated.Name,
+						"writeError", err.Error(),
+					)
+					if delErr := s.client.DeleteServiceToken(ctx, accountID, rotated.ID); delErr != nil {
+						s.log.Error(delErr, "failed to delete service token after secret write failure",
+							"tokenId", rotated.ID,
+						)
+					}
+					return nil, fmt.Errorf("failed to store rotated service token secret: %w", err)
 				}
 				s.log.Info("service token rotated, secret stored",
 					"tokenId", rotated.ID,
@@ -966,12 +978,24 @@ func (s *AccessService) EnsureServiceToken(ctx context.Context, accountID string
 		return nil, fmt.Errorf("failed to create service token: %w", err)
 	}
 
-	// Store the secret
+	// Store the secret. If this fails, delete the token so the next reconcile
+	// creates a fresh token+secret pair. The client secret is only available at
+	// creation time, so an orphaned token without a stored secret is unusable.
 	if secretWriter != nil {
 		if err := secretWriter.WriteSecret(ctx, params.Name, map[string][]byte{
 			"CF_ACCESS_CLIENT_ID":     []byte(created.ClientID),
 			"CF_ACCESS_CLIENT_SECRET": []byte(created.ClientSecret),
 		}); err != nil {
+			s.log.Info("secret write failed after token creation, deleting token to allow retry on next reconcile",
+				"tokenId", created.ID,
+				"tokenName", created.Name,
+				"writeError", err.Error(),
+			)
+			if delErr := s.client.DeleteServiceToken(ctx, accountID, created.ID); delErr != nil {
+				s.log.Error(delErr, "failed to delete service token after secret write failure",
+					"tokenId", created.ID,
+				)
+			}
 			return nil, fmt.Errorf("failed to store service token secret: %w", err)
 		}
 		s.log.Info("service token created, secret stored",

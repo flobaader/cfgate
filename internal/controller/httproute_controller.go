@@ -200,6 +200,14 @@ func (r *HTTPRouteReconciler) findRoutesForGateway(ctx context.Context, obj clie
 	var requests []reconcile.Request
 	for _, route := range routes.Items {
 		for _, ref := range route.Spec.ParentRefs {
+			// Skip non-Gateway parentRefs (consistent with isCfgateParentRef guard)
+			if ref.Group != nil && string(*ref.Group) != gwapiv1.GroupName {
+				continue
+			}
+			if ref.Kind != nil && string(*ref.Kind) != "Gateway" {
+				continue
+			}
+
 			refNS := route.Namespace
 			if ref.Namespace != nil {
 				refNS = string(*ref.Namespace)
@@ -395,7 +403,7 @@ func (r *HTTPRouteReconciler) validateParentRef(
 			parentStatus.Conditions[0] = status.NewCondition(
 				string(gwapiv1.RouteConditionAccepted),
 				metav1.ConditionFalse,
-				"NoMatchingParent",
+				status.ReasonNoMatchingParent,
 				fmt.Sprintf("Gateway %s/%s not found", gwNamespace, ref.Name),
 				route.Generation,
 			)
@@ -411,7 +419,7 @@ func (r *HTTPRouteReconciler) validateParentRef(
 		parentStatus.Conditions[0] = status.NewCondition(
 			string(gwapiv1.RouteConditionAccepted),
 			metav1.ConditionFalse,
-			"NoMatchingParent",
+			status.ReasonNoMatchingParent,
 			fmt.Sprintf("GatewayClass %s not found", gateway.Spec.GatewayClassName),
 			route.Generation,
 		)
@@ -422,7 +430,7 @@ func (r *HTTPRouteReconciler) validateParentRef(
 		parentStatus.Conditions[0] = status.NewCondition(
 			string(gwapiv1.RouteConditionAccepted),
 			metav1.ConditionFalse,
-			"NoMatchingParent",
+			status.ReasonNoMatchingParent,
 			"Gateway is not managed by cfgate",
 			route.Generation,
 		)
@@ -434,7 +442,7 @@ func (r *HTTPRouteReconciler) validateParentRef(
 		parentStatus.Conditions[0] = status.NewCondition(
 			string(gwapiv1.RouteConditionAccepted),
 			metav1.ConditionFalse,
-			"NoTunnelRef",
+			status.ReasonNoTunnelRef,
 			"Gateway has no tunnel reference annotation",
 			route.Generation,
 		)
@@ -455,7 +463,7 @@ func (r *HTTPRouteReconciler) validateParentRef(
 							parentStatus.Conditions[0] = status.NewCondition(
 								string(gwapiv1.RouteConditionAccepted),
 								metav1.ConditionFalse,
-								"NotAllowedByListeners",
+								status.ReasonNotAllowedByListeners,
 								"Route namespace not allowed by listener",
 								route.Generation,
 							)
@@ -470,7 +478,7 @@ func (r *HTTPRouteReconciler) validateParentRef(
 			parentStatus.Conditions[0] = status.NewCondition(
 				string(gwapiv1.RouteConditionAccepted),
 				metav1.ConditionFalse,
-				"NoMatchingListenerHostname",
+				status.ReasonNoMatchingListenerHostname,
 				fmt.Sprintf("Listener %s not found", *ref.SectionName),
 				route.Generation,
 			)
@@ -515,7 +523,7 @@ func (r *HTTPRouteReconciler) resolveBackends(
 					return status.NewCondition(
 						string(gwapiv1.RouteConditionResolvedRefs),
 						metav1.ConditionFalse,
-						"BackendNotFound",
+						status.ReasonBackendNotFound,
 						fmt.Sprintf("Service %s/%s not found", namespace, backend.Name),
 						route.Generation,
 					)
@@ -524,7 +532,7 @@ func (r *HTTPRouteReconciler) resolveBackends(
 				return status.NewCondition(
 					string(gwapiv1.RouteConditionResolvedRefs),
 					metav1.ConditionFalse,
-					"BackendNotFound",
+					status.ReasonBackendNotFound,
 					fmt.Sprintf("Failed to get Service %s/%s: %v", namespace, backend.Name, err),
 					route.Generation,
 				)
@@ -562,12 +570,12 @@ func (r *HTTPRouteReconciler) resolveAccessPolicy(
 	policyNS, policyName, err := parsePolicyRef(policyRef, route.Namespace)
 	if err != nil {
 		log.Info("invalid access policy reference", "ref", policyRef, "error", err)
-		r.Recorder.Eventf(route, nil, corev1.EventTypeWarning, "InvalidPolicyRef", "Validate",
+		r.Recorder.Eventf(route, nil, corev1.EventTypeWarning, status.ReasonInvalidPolicyRef, "Validate",
 			"Invalid access policy reference %q: %v", policyRef, err)
 		return status.NewCondition(
-			"AccessPolicyResolved",
+			status.ConditionTypeAccessPolicyResolved,
 			metav1.ConditionFalse,
-			"InvalidPolicyRef",
+			status.ReasonInvalidPolicyRef,
 			err.Error(),
 			route.Generation,
 		), true
@@ -584,21 +592,21 @@ func (r *HTTPRouteReconciler) resolveAccessPolicy(
 				"parsedNamespace", policyNS,
 				"parsedName", policyName,
 			)
-			r.Recorder.Eventf(route, nil, corev1.EventTypeWarning, "AccessPolicyNotFound", "Resolve",
+			r.Recorder.Eventf(route, nil, corev1.EventTypeWarning, status.ReasonAccessPolicyNotFound, "Resolve",
 				"Referenced CloudflareAccessPolicy %q not found", policyRef)
 			return status.NewCondition(
-				"AccessPolicyResolved",
+				status.ConditionTypeAccessPolicyResolved,
 				metav1.ConditionFalse,
-				"AccessPolicyNotFound",
+				status.ReasonAccessPolicyNotFound,
 				fmt.Sprintf("CloudflareAccessPolicy %s/%s not found", policyNS, policyName),
 				route.Generation,
 			), true
 		}
 		log.Error(err, "failed to get CloudflareAccessPolicy")
 		return status.NewCondition(
-			"AccessPolicyResolved",
+			status.ConditionTypeAccessPolicyResolved,
 			metav1.ConditionFalse,
-			"AccessPolicyError",
+			status.ReasonAccessPolicyError,
 			fmt.Sprintf("Failed to resolve CloudflareAccessPolicy: %v", err),
 			route.Generation,
 		), true
@@ -608,13 +616,13 @@ func (r *HTTPRouteReconciler) resolveAccessPolicy(
 		"policy", policyRef,
 		"applicationId", policy.Status.ApplicationID,
 	)
-	r.Recorder.Eventf(route, nil, corev1.EventTypeNormal, "AccessPolicyResolved", "Resolve",
+	r.Recorder.Eventf(route, nil, corev1.EventTypeNormal, status.ConditionTypeAccessPolicyResolved, "Resolve",
 		"Attached to CloudflareAccessPolicy %q", policyRef)
 
 	return status.NewCondition(
-		"AccessPolicyResolved",
+		status.ConditionTypeAccessPolicyResolved,
 		metav1.ConditionTrue,
-		"Resolved",
+		status.ReasonResolved,
 		fmt.Sprintf("Resolved CloudflareAccessPolicy %s/%s", policyNS, policyName),
 		route.Generation,
 	), true

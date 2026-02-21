@@ -162,7 +162,7 @@ func (r *CloudflareDNSReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	target, tunnel, err := r.resolveTarget(ctx, &dns)
 	if err != nil {
 		logger.Error(err, "failed to resolve target")
-		r.setCondition(&dns, status.ConditionTypeReady, metav1.ConditionFalse, "TargetResolutionFailed", err.Error())
+		r.setCondition(&dns, status.ConditionTypeReady, metav1.ConditionFalse, status.ReasonTargetResolutionFailed, err.Error())
 		if updateErr := r.updateStatus(ctx, &dns); updateErr != nil {
 			logger.Error(updateErr, "failed to update status")
 		}
@@ -176,30 +176,32 @@ func (r *CloudflareDNSReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	hostnames, err := r.collectHostnames(ctx, &dns, tunnel)
 	if err != nil {
 		logger.Error(err, "failed to collect hostnames")
-		r.setCondition(&dns, status.ConditionTypeReady, metav1.ConditionFalse, "HostnameCollectionFailed", err.Error())
+		r.setCondition(&dns, status.ConditionTypeReady, metav1.ConditionFalse, status.ReasonHostnameCollectionFailed, err.Error())
 		if updateErr := r.updateStatus(ctx, &dns); updateErr != nil {
 			logger.Error(updateErr, "failed to update status")
 		}
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	// If gatewayRoutes is enabled but 0 hostnames found, this may indicate
-	// a timing gap where relevant Gateways/HTTPRoutes haven't stabilized yet.
-	// Short requeue to self-heal rather than proceeding with empty state.
+	// If gatewayRoutes is enabled but 0 hostnames found, distinguish between:
+	//   (a) Initial provisioning: routes haven't appeared yet → short requeue
+	//   (b) Route removal: routes were deleted after prior sync → proceed to syncRecords
+	//       so deleteOrphanedRecords can clean up the now-orphaned DNS records
+	//
 	// Only applies in tunnel-ref mode: in external target mode (tunnel == nil),
 	// gateway route discovery is structurally unavailable and 0 hostnames is
-	// permanent, not transient. Without this guard, external target mode with
-	// gatewayRoutes.enabled and no explicit hostnames would loop at 10s forever.
-	if tunnel != nil && dns.Spec.Source.GatewayRoutes.Enabled && len(hostnames) == 0 && len(dns.Spec.Source.Explicit) == 0 {
+	// permanent, not transient.
+	hasPreviouslySyncedRecords := dns.Status.SyncedRecords > 0 || len(dns.Status.Records) > 0
+	if tunnel != nil && dns.Spec.Source.GatewayRoutes.Enabled && len(hostnames) == 0 && len(dns.Spec.Source.Explicit) == 0 && !hasPreviouslySyncedRecords {
 		logger.Info("no hostnames discovered with gatewayRoutes enabled, requeueing",
 			"requeueAfter", "10s",
 		)
 		r.setCondition(&dns, status.ConditionTypeRecordsSynced, metav1.ConditionUnknown,
-			"NoHostnamesDiscovered",
+			status.ReasonNoHostnamesDiscovered,
 			"Gateway routes enabled but no hostnames found yet; retrying",
 		)
 		r.setCondition(&dns, status.ConditionTypeReady, metav1.ConditionUnknown,
-			"NoHostnamesDiscovered",
+			status.ReasonNoHostnamesDiscovered,
 			"Waiting for hostname discovery from gateway routes",
 		)
 		if updateErr := r.updateStatus(ctx, &dns); updateErr != nil {
@@ -244,7 +246,12 @@ func (r *CloudflareDNSReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.Recorder.Eventf(&dns, nil, corev1.EventTypeWarning, "SyncFailed", "Sync", "%s", err.Error())
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
-	r.setCondition(&dns, status.ConditionTypeRecordsSynced, metav1.ConditionTrue, status.ReasonRecordsSynced, "DNS records synced successfully")
+	if dns.Status.FailedRecords > 0 {
+		msg := fmt.Sprintf("%d of %d records failed to sync", dns.Status.FailedRecords, dns.Status.SyncedRecords+dns.Status.FailedRecords)
+		r.setCondition(&dns, status.ConditionTypeRecordsSynced, metav1.ConditionFalse, status.ReasonRecordSyncFailed, msg)
+	} else {
+		r.setCondition(&dns, status.ConditionTypeRecordsSynced, metav1.ConditionTrue, status.ReasonRecordsSynced, "DNS records synced successfully")
+	}
 
 	// 8. Verify ownership records
 	ownershipVerified, err := r.verifyOwnership(ctx, &dns, zones, hostnameKeys(hostnames), dnsService)
@@ -258,13 +265,23 @@ func (r *CloudflareDNSReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// 9. Update overall Ready status
-	r.setCondition(&dns, status.ConditionTypeReady, metav1.ConditionTrue, "Ready", "DNS sync is operational")
+	if dns.Status.FailedRecords > 0 {
+		msg := fmt.Sprintf("DNS sync partially failed: %d record(s) failed", dns.Status.FailedRecords)
+		r.setCondition(&dns, status.ConditionTypeReady, metav1.ConditionFalse, status.ReasonSyncPartiallyFailed, msg)
+	} else {
+		r.setCondition(&dns, status.ConditionTypeReady, metav1.ConditionTrue, status.ReasonReady, "DNS sync is operational")
+	}
 	dns.Status.ObservedGeneration = dns.Generation
 	now := metav1.Now()
 	dns.Status.LastSyncTime = &now
 
 	if err := r.updateStatus(ctx, &dns); err != nil {
 		logger.Error(err, "failed to update status")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	if dns.Status.FailedRecords > 0 {
+		r.Recorder.Eventf(&dns, nil, corev1.EventTypeWarning, "Reconciled", "Reconcile", "DNS sync completed with %d failure(s)", dns.Status.FailedRecords)
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
@@ -517,11 +534,18 @@ func (r *CloudflareDNSReconciler) collectHostnamesFromRoutes(ctx context.Context
 		return nil, fmt.Errorf("failed to list gateways: %w", err)
 	}
 
-	tunnelRef := fmt.Sprintf("%s/%s", tunnel.Namespace, tunnel.Name)
 	var relevantGateways []gateway.Gateway
 
 	for _, gw := range gateways.Items {
-		if ref, ok := gw.Annotations[annotations.AnnotationTunnelRef]; ok && ref == tunnelRef {
+		ref := annotations.GetAnnotation(&gw, annotations.AnnotationTunnelRef)
+		if ref == "" {
+			continue
+		}
+		ns, name, err := annotations.ParseNamespacedName(ref, gw.Namespace)
+		if err != nil {
+			continue
+		}
+		if name == tunnel.Name && ns == tunnel.Namespace {
 			relevantGateways = append(relevantGateways, gw)
 		}
 	}
@@ -690,9 +714,7 @@ func (r *CloudflareDNSReconciler) syncRecords(ctx context.Context, dns *cfgatev1
 			proxied = *hostnameConfig.Proxied
 		}
 
-		// Build desired record. The comment embeds ownerID for alpha.2 comment-based
-		// ownership checks so IsOwnedByCfgate can verify the specific owner.
-		comment := fmt.Sprintf("managed by cfgate, owner=%s, dns=%s/%s", ownerID, dns.Namespace, dns.Name)
+		comment := "managed by cfgate"
 		desired := cloudflare.BuildCNAMERecord(hostname, target, proxied, int(ttl), comment)
 
 		// Sync record using policy
@@ -767,8 +789,16 @@ func (r *CloudflareDNSReconciler) syncRecords(ctx context.Context, dns *cfgatev1
 }
 
 // deleteOrphanedRecords deletes records that were previously synced but are no longer wanted.
+// Respects CleanupPolicy.DeleteOnRouteRemoval — when explicitly set to false, orphaned
+// records are retained even if their source routes are removed.
 func (r *CloudflareDNSReconciler) deleteOrphanedRecords(ctx context.Context, dns *cfgatev1alpha1.CloudflareDNS, hostnames []string, zones map[string]string, dnsService *cloudflare.DNSService, ownerID, ownershipPrefix string) error {
 	logger := log.FromContext(ctx).WithName("controller").WithName("dns")
+
+	// Check DeleteOnRouteRemoval policy (nil defaults to true)
+	if dns.Spec.CleanupPolicy.DeleteOnRouteRemoval != nil && !*dns.Spec.CleanupPolicy.DeleteOnRouteRemoval {
+		logger.V(1).Info("skipping orphaned record deletion, deleteOnRouteRemoval is disabled")
+		return nil
+	}
 
 	for _, prevRecord := range dns.Status.Records {
 		found := false
@@ -890,6 +920,8 @@ func (r *CloudflareDNSReconciler) reconcileDelete(ctx context.Context, dns *cfga
 		}
 	} else if dns.Spec.Policy != cfgatev1alpha1.DNSPolicySync {
 		logger.Info("skipping DNS cleanup due to policy", "policy", dns.Spec.Policy)
+	} else if !shouldDeleteOnResourceRemoval {
+		logger.Info("skipping DNS cleanup, deleteOnResourceRemoval is disabled")
 	}
 
 	// Remove finalizer using patch to reduce lock contention
@@ -1062,32 +1094,38 @@ func (r *CloudflareDNSReconciler) createClientFromSecret(secret *corev1.Secret, 
 func (r *CloudflareDNSReconciler) getCloudflareClientWithFallback(ctx context.Context, dns *cfgatev1alpha1.CloudflareDNS) (cloudflare.Client, error) {
 	logger := log.FromContext(ctx).WithName("controller").WithName("dns")
 
+	var tunnelErr, dnsOwnErr, fallbackErr error
+
 	// Try tunnel credentials first (if tunnelRef is set)
 	if dns.Spec.TunnelRef != nil {
 		tunnel, err := r.resolveTunnel(ctx, dns)
 		if err == nil {
 			cfClient, err := r.getClientFromTunnel(ctx, tunnel)
 			if err == nil {
+				logger.V(1).Info("credential path resolved", "path", "tunnel", "tunnel", tunnel.Namespace+"/"+tunnel.Name)
 				return cfClient, nil
 			}
-			logger.V(1).Info("tunnel credentials unavailable", "error", err.Error())
+			tunnelErr = fmt.Errorf("secret unavailable: %w", err)
 		} else {
-			logger.V(1).Info("tunnel not found", "error", err.Error())
+			tunnelErr = fmt.Errorf("tunnel not found: %w", err)
 		}
+		logger.V(1).Info("tunnel credentials unavailable", "error", tunnelErr.Error())
 	}
 
 	// Try DNS resource's own credentials (external target mode)
 	if dns.Spec.Cloudflare != nil && dns.Spec.Cloudflare.SecretRef.Name != "" {
 		cfClient, err := r.getCloudflareClient(ctx, dns, nil)
 		if err == nil {
+			logger.V(1).Info("credential path resolved", "path", "dns-own")
 			return cfClient, nil
 		}
+		dnsOwnErr = err
 		logger.V(1).Info("dns credentials unavailable", "error", err.Error())
 	}
 
 	// Check if we have fallback credentials
 	if dns.Spec.FallbackCredentialsRef == nil {
-		return nil, fmt.Errorf("credentials unavailable and no fallback configured")
+		return nil, fmt.Errorf("all credential paths failed: tunnel=[%v], dns-own=[%v], fallback=[not configured]", tunnelErr, dnsOwnErr)
 	}
 
 	logger.Info("using fallback credentials for DNS cleanup",
@@ -1106,18 +1144,23 @@ func (r *CloudflareDNSReconciler) getCloudflareClientWithFallback(ctx context.Co
 		Name:      dns.Spec.FallbackCredentialsRef.Name,
 		Namespace: fallbackNamespace,
 	}, fallbackSecret); err != nil {
-		return nil, fmt.Errorf("failed to get fallback credentials secret: %w", err)
+		fallbackErr = fmt.Errorf("secret read failed: %w", err)
+		return nil, fmt.Errorf("all credential paths failed: tunnel=[%v], dns-own=[%v], fallback=[%v]", tunnelErr, dnsOwnErr, fallbackErr)
 	}
 
 	token, ok := fallbackSecret.Data["CLOUDFLARE_API_TOKEN"]
 	if !ok {
-		return nil, fmt.Errorf("CLOUDFLARE_API_TOKEN not found in fallback secret")
+		fallbackErr = fmt.Errorf("CLOUDFLARE_API_TOKEN key missing in secret %s/%s", fallbackNamespace, dns.Spec.FallbackCredentialsRef.Name)
+		return nil, fmt.Errorf("all credential paths failed: tunnel=[%v], dns-own=[%v], fallback=[%v]", tunnelErr, dnsOwnErr, fallbackErr)
 	}
 
+	logger.V(1).Info("credential path resolved", "path", "fallback", "secret", fallbackNamespace+"/"+dns.Spec.FallbackCredentialsRef.Name)
 	return cloudflare.NewClient(string(token))
 }
 
 // cleanupRecordsWithFallback deletes managed DNS records using fallback credentials if needed.
+// Returns an error if any record deletions failed, even though it attempts all deletions
+// (continue-on-error). The caller uses this signal for accurate events/conditions.
 func (r *CloudflareDNSReconciler) cleanupRecordsWithFallback(ctx context.Context, dns *cfgatev1alpha1.CloudflareDNS) error {
 	logger := log.FromContext(ctx).WithName("controller").WithName("dns")
 
@@ -1134,6 +1177,19 @@ func (r *CloudflareDNSReconciler) cleanupRecordsWithFallback(ctx context.Context
 		ownerID = fmt.Sprintf("%s/%s", dns.Namespace, dns.Name)
 	}
 
+	if len(dns.Spec.Zones) == 0 {
+		logger.Info("cleanup: no zones configured, nothing to clean", "ownerID", ownerID)
+		return nil
+	}
+
+	logger.V(1).Info("cleanup: starting record deletion",
+		"ownerID", ownerID,
+		"zoneCount", len(dns.Spec.Zones),
+	)
+
+	var deleteErrors []string
+	var totalDeleted int
+
 	// For each zone, find and delete managed records
 	for _, zoneConfig := range dns.Spec.Zones {
 		zoneID := zoneConfig.ID
@@ -1141,6 +1197,7 @@ func (r *CloudflareDNSReconciler) cleanupRecordsWithFallback(ctx context.Context
 			zone, err := dnsService.ResolveZone(ctx, zoneConfig.Name)
 			if err != nil {
 				logger.Error(err, "failed to resolve zone for cleanup", "zone", zoneConfig.Name)
+				deleteErrors = append(deleteErrors, fmt.Sprintf("zone %s: resolve failed: %v", zoneConfig.Name, err))
 				continue
 			}
 			if zone == nil {
@@ -1148,28 +1205,61 @@ func (r *CloudflareDNSReconciler) cleanupRecordsWithFallback(ctx context.Context
 				continue
 			}
 			zoneID = zone.ID
+			logger.V(1).Info("cleanup: zone resolved", "zone", zoneConfig.Name, "zoneID", zoneID)
 		}
 
 		// List managed records
 		records, err := dnsService.ListManagedRecords(ctx, zoneID, ownerID)
 		if err != nil {
 			logger.Error(err, "failed to list managed records", "zone", zoneConfig.Name)
+			deleteErrors = append(deleteErrors, fmt.Sprintf("zone %s: list failed: %v", zoneConfig.Name, err))
 			continue
 		}
+
+		if len(records) == 0 {
+			logger.Info("cleanup: no managed records found in zone",
+				"zone", zoneConfig.Name,
+				"ownerID", ownerID,
+			)
+			continue
+		}
+
+		logger.V(1).Info("cleanup: found managed records",
+			"zone", zoneConfig.Name,
+			"recordCount", len(records),
+		)
 
 		for _, record := range records {
 			// OnlyManaged nil defaults to true (only delete managed records)
 			onlyManaged := dns.Spec.CleanupPolicy.OnlyManaged == nil || *dns.Spec.CleanupPolicy.OnlyManaged
 			if cloudflare.IsOwnedByCfgate(&record, ownerID) || !onlyManaged {
 				if err := dnsService.DeleteRecord(ctx, zoneID, record.ID); err != nil {
-					logger.Error(err, "failed to delete DNS record", "record", record.Name)
+					logger.Error(err, "failed to delete DNS record",
+						"record", record.Name,
+						"recordID", record.ID,
+						"type", record.Type,
+					)
+					deleteErrors = append(deleteErrors, fmt.Sprintf("record %s: %v", record.Name, err))
 				} else {
-					logger.Info("deleted DNS record", "record", record.Name)
+					totalDeleted++
+					logger.Info("deleted DNS record",
+						"record", record.Name,
+						"recordID", record.ID,
+						"type", record.Type,
+					)
 				}
 			}
 		}
 	}
 
+	logger.V(1).Info("cleanup: finished",
+		"totalDeleted", totalDeleted,
+		"errors", len(deleteErrors),
+	)
+
+	if len(deleteErrors) > 0 {
+		return fmt.Errorf("partial cleanup failure (%d errors): %s", len(deleteErrors), strings.Join(deleteErrors, "; "))
+	}
 	return nil
 }
 

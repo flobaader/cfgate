@@ -40,10 +40,22 @@ const (
 	ConditionTypeCredentialsValid = "CredentialsValid"
 
 	// ConditionTypeTunnelCreated indicates tunnel exists in Cloudflare.
+	// Used by condition constructors for lifecycle tracking.
 	ConditionTypeTunnelCreated = "TunnelCreated"
 
+	// ConditionTypeTunnelReady indicates the tunnel exists and is healthy.
+	// Used by CloudflareTunnel controller for ongoing health status.
+	ConditionTypeTunnelReady = "TunnelReady"
+
 	// ConditionTypeTunnelConfigured indicates tunnel configuration is synced.
+	// Used by condition constructors for lifecycle tracking.
 	ConditionTypeTunnelConfigured = "TunnelConfigured"
+
+	// ConditionTypeCloudflaredDeployed indicates the cloudflared deployment is running.
+	ConditionTypeCloudflaredDeployed = "CloudflaredDeployed"
+
+	// ConditionTypeConfigurationSynced indicates the tunnel configuration is synced to Cloudflare API.
+	ConditionTypeConfigurationSynced = "ConfigurationSynced"
 
 	// ConditionTypeDeploymentReady indicates cloudflared deployment is ready.
 	ConditionTypeDeploymentReady = "DeploymentReady"
@@ -74,6 +86,18 @@ const (
 
 	// ConditionTypeServiceTokensReady indicates service tokens are ready.
 	ConditionTypeServiceTokensReady = "ServiceTokensReady"
+
+	// ConditionTypeReferenceGrantValid indicates cross-namespace references are permitted.
+	ConditionTypeReferenceGrantValid = "ReferenceGrantValid"
+
+	// ConditionTypeMTLSConfigured indicates mTLS certificate and hostname associations are configured.
+	ConditionTypeMTLSConfigured = "MTLSConfigured"
+)
+
+// cfgate-specific condition types for HTTPRoute status.
+const (
+	// ConditionTypeAccessPolicyResolved indicates the cfgate.io/access-policy reference is resolved.
+	ConditionTypeAccessPolicyResolved = "AccessPolicyResolved"
 )
 
 // Policy condition types for Gateway API Policy status.
@@ -100,6 +124,7 @@ const (
 	ReasonReconciling      = "Reconciling"
 	ReasonReconcileSuccess = "ReconcileSuccess"
 	ReasonReconcileError   = "ReconcileError"
+	ReasonReady            = "Ready"
 
 	// Credentials reasons.
 	ReasonCredentialsValid   = "CredentialsValid"
@@ -111,10 +136,14 @@ const (
 	ReasonTunnelAdopted     = "TunnelAdopted"
 	ReasonTunnelCreateError = "TunnelCreateError"
 	ReasonTunnelNotFound    = "TunnelNotFound"
+	ReasonTunnelError       = "TunnelError"
+	ReasonTunnelReady       = "TunnelReady"
+	ReasonTunnelOperational = "TunnelOperational"
 
 	// Configuration reasons.
-	ReasonConfigSynced    = "ConfigSynced"
-	ReasonConfigSyncError = "ConfigSyncError"
+	ReasonConfigSynced        = "ConfigSynced"
+	ReasonConfigSyncError     = "ConfigSyncError"
+	ReasonConfigurationSynced = "ConfigurationSynced"
 
 	// Deployment reasons.
 	ReasonDeploymentReady    = "DeploymentReady"
@@ -122,22 +151,45 @@ const (
 	ReasonDeploymentError    = "DeploymentError"
 
 	// DNS reasons.
-	ReasonZonesResolved        = "ZonesResolved"
-	ReasonZoneResolutionFailed = "ZoneResolutionFailed"
-	ReasonRecordsSynced        = "RecordsSynced"
-	ReasonRecordSyncFailed     = "RecordSyncFailed"
-	ReasonOwnershipVerified    = "OwnershipVerified"
-	ReasonOwnershipFailed      = "OwnershipFailed"
+	ReasonZonesResolved            = "ZonesResolved"
+	ReasonZoneResolutionFailed     = "ZoneResolutionFailed"
+	ReasonRecordsSynced            = "RecordsSynced"
+	ReasonRecordSyncFailed         = "RecordSyncFailed"
+	ReasonOwnershipVerified        = "OwnershipVerified"
+	ReasonOwnershipFailed          = "OwnershipFailed"
+	ReasonTargetResolutionFailed   = "TargetResolutionFailed"
+	ReasonHostnameCollectionFailed = "HostnameCollectionFailed"
+	ReasonNoHostnamesDiscovered    = "NoHostnamesDiscovered"
+	ReasonSyncPartiallyFailed      = "SyncPartiallyFailed"
 
 	// Access Policy reasons.
-	ReasonTargetsResolved    = "TargetsResolved"
-	ReasonTargetNotFound     = "TargetNotFound"
-	ReasonApplicationCreated = "ApplicationCreated"
-	ReasonApplicationError   = "ApplicationError"
-	ReasonPoliciesAttached   = "PoliciesAttached"
-	ReasonPolicyError        = "PolicyError"
-	ReasonServiceTokensReady = "ServiceTokensReady"
-	ReasonServiceTokenError  = "ServiceTokenError"
+	ReasonTargetsResolved        = "TargetsResolved"
+	ReasonTargetNotFound         = "TargetNotFound"
+	ReasonApplicationCreated     = "ApplicationCreated"
+	ReasonApplicationError       = "ApplicationError"
+	ReasonPoliciesAttached       = "PoliciesAttached"
+	ReasonPolicyError            = "PolicyError"
+	ReasonServiceTokensReady     = "ServiceTokensReady"
+	ReasonServiceTokenError      = "ServiceTokenError"
+	ReasonReferenceGrantRequired = "ReferenceGrantRequired"
+	ReasonMTLSConfigured         = "MTLSConfigured"
+	ReasonMTLSConfigError        = "MTLSConfigError"
+
+	// Gateway reasons.
+	ReasonMissingTunnelRef = "MissingTunnelRef"
+	ReasonTunnelPending    = "TunnelPending"
+	ReasonTunnelNotReady   = "TunnelNotReady"
+
+	// HTTPRoute reasons.
+	ReasonNoMatchingParent           = "NoMatchingParent"
+	ReasonNoTunnelRef                = "NoTunnelRef"
+	ReasonNotAllowedByListeners      = "NotAllowedByListeners"
+	ReasonNoMatchingListenerHostname = "NoMatchingListenerHostname"
+	ReasonBackendNotFound            = "BackendNotFound"
+	ReasonAccessPolicyNotFound       = "AccessPolicyNotFound"
+	ReasonAccessPolicyError          = "AccessPolicyError"
+	ReasonInvalidPolicyRef           = "InvalidPolicyRef"
+	ReasonResolved                   = "Resolved"
 )
 
 // MergeConditions merges condition updates into an existing condition slice.

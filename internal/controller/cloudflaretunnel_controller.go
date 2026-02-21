@@ -31,26 +31,12 @@ import (
 	"cfgate.io/cfgate/internal/cloudflare"
 	"cfgate.io/cfgate/internal/cloudflared"
 	"cfgate.io/cfgate/internal/controller/annotations"
+	"cfgate.io/cfgate/internal/controller/status"
 )
 
 const (
 	// tunnelFinalizer is the finalizer for CloudflareTunnel resources.
 	tunnelFinalizer = "cfgate.io/tunnel-cleanup"
-
-	// ConditionTypeReady indicates the tunnel is fully operational.
-	ConditionTypeReady = "Ready"
-
-	// ConditionTypeCredentialsValid indicates the API credentials are valid.
-	ConditionTypeCredentialsValid = "CredentialsValid"
-
-	// ConditionTypeTunnelReady indicates the tunnel exists in Cloudflare.
-	ConditionTypeTunnelReady = "TunnelReady"
-
-	// ConditionTypeCloudflaredDeployed indicates the cloudflared deployment is running.
-	ConditionTypeCloudflaredDeployed = "CloudflaredDeployed"
-
-	// ConditionTypeConfigurationSynced indicates the tunnel configuration is synced.
-	ConditionTypeConfigurationSynced = "ConfigurationSynced"
 
 	// requeueAfterError is the requeue delay after an error.
 	requeueAfterError = 30 * time.Second
@@ -169,9 +155,9 @@ func (r *CloudflareTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		syncErr := r.syncConfiguration(ctx, &tunnel)
 		if syncErr != nil {
 			log.Error(syncErr, "failed to sync configuration in guard path")
-			r.setCondition(&tunnel, ConditionTypeConfigurationSynced, metav1.ConditionFalse, "ConfigSyncError", syncErr.Error())
+			r.setCondition(&tunnel, status.ConditionTypeConfigurationSynced, metav1.ConditionFalse, status.ReasonConfigSyncError, syncErr.Error())
 		} else {
-			r.setCondition(&tunnel, ConditionTypeConfigurationSynced, metav1.ConditionTrue, "ConfigurationSynced",
+			r.setCondition(&tunnel, status.ConditionTypeConfigurationSynced, metav1.ConditionTrue, status.ReasonConfigurationSynced,
 				fmt.Sprintf("Configuration synced with %d ingress rules", tunnel.Status.ConnectedRouteCount))
 		}
 
@@ -190,59 +176,59 @@ func (r *CloudflareTunnelReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	// 3. Validate credentials
 	if err := r.validateCredentials(ctx, &tunnel); err != nil {
 		log.Error(err, "credentials validation failed")
-		r.setCondition(&tunnel, ConditionTypeCredentialsValid, metav1.ConditionFalse, "CredentialsInvalid", err.Error())
-		r.setCondition(&tunnel, ConditionTypeReady, metav1.ConditionFalse, "CredentialsInvalid", "API credentials are invalid")
+		r.setCondition(&tunnel, status.ConditionTypeCredentialsValid, metav1.ConditionFalse, status.ReasonCredentialsInvalid, err.Error())
+		r.setCondition(&tunnel, status.ConditionTypeReady, metav1.ConditionFalse, status.ReasonCredentialsInvalid, "API credentials are invalid")
 		if err := r.updateStatus(ctx, &tunnel); err != nil {
 			log.Error(err, "failed to update status")
 		}
 		r.Recorder.Eventf(&tunnel, nil, corev1.EventTypeWarning, "CredentialsInvalid", "Validate", "%s", err.Error())
 		return ctrl.Result{RequeueAfter: requeueAfterError}, nil
 	}
-	r.setCondition(&tunnel, ConditionTypeCredentialsValid, metav1.ConditionTrue, "CredentialsValid", "API token validated successfully")
+	r.setCondition(&tunnel, status.ConditionTypeCredentialsValid, metav1.ConditionTrue, status.ReasonCredentialsValid, "API token validated successfully")
 
 	// 4. Resolve/create tunnel
 	if err := r.ensureTunnel(ctx, &tunnel); err != nil {
 		log.Error(err, "failed to ensure tunnel")
-		r.setCondition(&tunnel, ConditionTypeTunnelReady, metav1.ConditionFalse, "TunnelError", err.Error())
-		r.setCondition(&tunnel, ConditionTypeReady, metav1.ConditionFalse, "TunnelError", "Failed to ensure tunnel")
+		r.setCondition(&tunnel, status.ConditionTypeTunnelReady, metav1.ConditionFalse, status.ReasonTunnelError, err.Error())
+		r.setCondition(&tunnel, status.ConditionTypeReady, metav1.ConditionFalse, status.ReasonTunnelError, "Failed to ensure tunnel")
 		if err := r.updateStatus(ctx, &tunnel); err != nil {
 			log.Error(err, "failed to update status")
 		}
 		r.Recorder.Eventf(&tunnel, nil, corev1.EventTypeWarning, "TunnelError", "Reconcile", "%s", err.Error())
 		return ctrl.Result{RequeueAfter: requeueAfterError}, nil
 	}
-	r.setCondition(&tunnel, ConditionTypeTunnelReady, metav1.ConditionTrue, "TunnelReady", fmt.Sprintf("Tunnel %s ready", tunnel.Status.TunnelID))
+	r.setCondition(&tunnel, status.ConditionTypeTunnelReady, metav1.ConditionTrue, status.ReasonTunnelReady, fmt.Sprintf("Tunnel %s ready", tunnel.Status.TunnelID))
 
 	// 5. Deploy cloudflared
 	if err := r.deployCloudflared(ctx, &tunnel); err != nil {
 		log.Error(err, "failed to deploy cloudflared")
-		r.setCondition(&tunnel, ConditionTypeCloudflaredDeployed, metav1.ConditionFalse, "DeploymentError", err.Error())
-		r.setCondition(&tunnel, ConditionTypeReady, metav1.ConditionFalse, "DeploymentError", "Failed to deploy cloudflared")
+		r.setCondition(&tunnel, status.ConditionTypeCloudflaredDeployed, metav1.ConditionFalse, status.ReasonDeploymentError, err.Error())
+		r.setCondition(&tunnel, status.ConditionTypeReady, metav1.ConditionFalse, status.ReasonDeploymentError, "Failed to deploy cloudflared")
 		if err := r.updateStatus(ctx, &tunnel); err != nil {
 			log.Error(err, "failed to update status")
 		}
 		r.Recorder.Eventf(&tunnel, nil, corev1.EventTypeWarning, "DeploymentError", "Deploy", "%s", err.Error())
 		return ctrl.Result{RequeueAfter: requeueAfterError}, nil
 	}
-	r.setCondition(&tunnel, ConditionTypeCloudflaredDeployed, metav1.ConditionTrue, "DeploymentReady", "cloudflared deployment ready")
+	r.setCondition(&tunnel, status.ConditionTypeCloudflaredDeployed, metav1.ConditionTrue, status.ReasonDeploymentReady, "cloudflared deployment ready")
 
 	// 6. Sync configuration
 	if err := r.syncConfiguration(ctx, &tunnel); err != nil {
 		log.Error(err, "failed to sync configuration")
-		r.setCondition(&tunnel, ConditionTypeConfigurationSynced, metav1.ConditionFalse, "ConfigSyncError", err.Error())
-		r.setCondition(&tunnel, ConditionTypeReady, metav1.ConditionFalse, "ConfigSyncError", "Failed to sync configuration")
+		r.setCondition(&tunnel, status.ConditionTypeConfigurationSynced, metav1.ConditionFalse, status.ReasonConfigSyncError, err.Error())
+		r.setCondition(&tunnel, status.ConditionTypeReady, metav1.ConditionFalse, status.ReasonConfigSyncError, "Failed to sync configuration")
 		if err := r.updateStatus(ctx, &tunnel); err != nil {
 			log.Error(err, "failed to update status")
 		}
 		r.Recorder.Eventf(&tunnel, nil, corev1.EventTypeWarning, "ConfigSyncError", "Sync", "%s", err.Error())
 		return ctrl.Result{RequeueAfter: requeueAfterError}, nil
 	}
-	r.setCondition(&tunnel, ConditionTypeConfigurationSynced, metav1.ConditionTrue, "ConfigurationSynced", fmt.Sprintf("Configuration synced with %d ingress rules", tunnel.Status.ConnectedRouteCount))
+	r.setCondition(&tunnel, status.ConditionTypeConfigurationSynced, metav1.ConditionTrue, status.ReasonConfigurationSynced, fmt.Sprintf("Configuration synced with %d ingress rules", tunnel.Status.ConnectedRouteCount))
 
 	// Note: DNS management is handled by CloudflareDNS CRD
 
 	// 7. Update status
-	r.setCondition(&tunnel, ConditionTypeReady, metav1.ConditionTrue, "TunnelOperational", "Tunnel is fully operational")
+	r.setCondition(&tunnel, status.ConditionTypeReady, metav1.ConditionTrue, status.ReasonTunnelOperational, "Tunnel is fully operational")
 	tunnel.Status.ObservedGeneration = tunnel.Generation
 	now := metav1.Now()
 	tunnel.Status.LastSyncTime = &now
@@ -302,21 +288,20 @@ func (r *CloudflareTunnelReconciler) findTunnelsForGateway(ctx context.Context, 
 	}
 
 	// Get tunnel reference from annotation
-	tunnelRef, ok := gw.Annotations["cfgate.io/tunnel-ref"]
-	if !ok {
+	ref := annotations.GetAnnotation(gw, annotations.AnnotationTunnelRef)
+	if ref == "" {
 		return nil
 	}
 
-	// Parse namespace/name
-	parts := strings.Split(tunnelRef, "/")
-	if len(parts) != 2 {
+	ns, name, err := annotations.ParseNamespacedName(ref, gw.Namespace)
+	if err != nil {
 		return nil
 	}
 
 	return []reconcile.Request{{
 		NamespacedName: types.NamespacedName{
-			Namespace: parts[0],
-			Name:      parts[1],
+			Namespace: ns,
+			Name:      name,
 		},
 	}}
 }
@@ -349,20 +334,20 @@ func (r *CloudflareTunnelReconciler) findTunnelsForHTTPRoute(ctx context.Context
 		}
 
 		// Get tunnel from Gateway annotation
-		tunnelRef, ok := gw.Annotations["cfgate.io/tunnel-ref"]
-		if !ok {
+		ref := annotations.GetAnnotation(gw, annotations.AnnotationTunnelRef)
+		if ref == "" {
 			continue
 		}
 
-		parts := strings.Split(tunnelRef, "/")
-		if len(parts) != 2 {
+		ns, name, err := annotations.ParseNamespacedName(ref, gw.Namespace)
+		if err != nil {
 			continue
 		}
 
 		requests = append(requests, reconcile.Request{
 			NamespacedName: types.NamespacedName{
-				Namespace: parts[0],
-				Name:      parts[1],
+				Namespace: ns,
+				Name:      name,
 			},
 		})
 	}
@@ -637,11 +622,18 @@ func (r *CloudflareTunnelReconciler) collectIngressRules(ctx context.Context, tu
 		return nil, 0, fmt.Errorf("failed to list gateways: %w", err)
 	}
 
-	tunnelRef := fmt.Sprintf("%s/%s", tunnel.Namespace, tunnel.Name)
 	var relevantGateways []gateway.Gateway
 
 	for _, gw := range gateways.Items {
-		if ref, ok := gw.Annotations[annotations.AnnotationTunnelRef]; ok && ref == tunnelRef {
+		ref := annotations.GetAnnotation(&gw, annotations.AnnotationTunnelRef)
+		if ref == "" {
+			continue
+		}
+		ns, name, err := annotations.ParseNamespacedName(ref, gw.Namespace)
+		if err != nil {
+			continue
+		}
+		if name == tunnel.Name && ns == tunnel.Namespace {
 			relevantGateways = append(relevantGateways, gw)
 		}
 	}
@@ -890,7 +882,7 @@ func isTunnelHealthy(tunnel *cfgatev1alpha1.CloudflareTunnel) bool {
 	if tunnel.Status.TunnelID == "" {
 		return false
 	}
-	return meta.IsStatusConditionTrue(tunnel.Status.Conditions, ConditionTypeReady)
+	return meta.IsStatusConditionTrue(tunnel.Status.Conditions, status.ConditionTypeReady)
 }
 
 // getCloudflareClient returns a Cloudflare client for the tunnel, creating one

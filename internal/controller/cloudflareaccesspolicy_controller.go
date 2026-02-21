@@ -206,8 +206,8 @@ func (r *CloudflareAccessPolicyReconciler) reconcilePhases(ctx context.Context, 
 		if err := r.checkReferenceGrants(ctx, policy, policyCtx); err != nil {
 			log.Info("ReferenceGrant check failed", "error", err.Error())
 			policy.Status.Conditions = status.MergeConditions(policy.Status.Conditions,
-				status.NewCondition("ReferenceGrantValid", metav1.ConditionFalse,
-					"ReferenceGrantRequired", status.Error2ConditionMsg(err), generation),
+				status.NewCondition(status.ConditionTypeReferenceGrantValid, metav1.ConditionFalse,
+					status.ReasonReferenceGrantRequired, status.Error2ConditionMsg(err), generation),
 			)
 			if statusErr := r.updateStatus(ctx, policy); statusErr != nil {
 				log.Error(statusErr, "failed to update status")
@@ -276,13 +276,13 @@ func (r *CloudflareAccessPolicyReconciler) reconcilePhases(ctx context.Context, 
 		if err := r.ensureServiceTokens(ctx, accessService, accountID, policy); err != nil {
 			log.Error(err, "failed to ensure service tokens (continuing)")
 			policy.Status.Conditions = status.MergeConditions(policy.Status.Conditions,
-				status.NewCondition("ServiceTokensReady", metav1.ConditionFalse,
-					"ServiceTokenError", status.Error2ConditionMsg(err), generation),
+				status.NewCondition(status.ConditionTypeServiceTokensReady, metav1.ConditionFalse,
+					status.ReasonServiceTokenError, status.Error2ConditionMsg(err), generation),
 			)
 		} else {
 			policy.Status.Conditions = status.MergeConditions(policy.Status.Conditions,
-				status.NewCondition("ServiceTokensReady", metav1.ConditionTrue,
-					"ServiceTokensReady", "Service tokens ready.", generation),
+				status.NewCondition(status.ConditionTypeServiceTokensReady, metav1.ConditionTrue,
+					status.ReasonServiceTokensReady, "Service tokens ready.", generation),
 			)
 		}
 	}
@@ -292,13 +292,13 @@ func (r *CloudflareAccessPolicyReconciler) reconcilePhases(ctx context.Context, 
 		if err := r.configureMTLS(ctx, accessService, accountID, policy, hostnames); err != nil {
 			log.Error(err, "failed to configure mTLS (continuing)")
 			policy.Status.Conditions = status.MergeConditions(policy.Status.Conditions,
-				status.NewCondition("MTLSConfigured", metav1.ConditionFalse,
-					"MTLSConfigError", status.Error2ConditionMsg(err), generation),
+				status.NewCondition(status.ConditionTypeMTLSConfigured, metav1.ConditionFalse,
+					status.ReasonMTLSConfigError, status.Error2ConditionMsg(err), generation),
 			)
 		} else {
 			policy.Status.Conditions = status.MergeConditions(policy.Status.Conditions,
-				status.NewCondition("MTLSConfigured", metav1.ConditionTrue,
-					"MTLSConfigured", "mTLS configured.", generation),
+				status.NewCondition(status.ConditionTypeMTLSConfigured, metav1.ConditionTrue,
+					status.ReasonMTLSConfigured, "mTLS configured.", generation),
 			)
 		}
 	}

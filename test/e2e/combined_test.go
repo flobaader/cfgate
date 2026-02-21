@@ -252,7 +252,14 @@ var _ = Describe("Multi-Resource E2E", Label("cloudflare"), Ordered, func() {
 			By("Waiting for DNS record to be cleaned up")
 			Eventually(func() bool {
 				record, err := getDNSRecordFromCloudflare(ctx, cfClient, zoneID, hostname, "CNAME")
-				return err == nil && record == nil
+				if err != nil {
+					GinkgoWriter.Printf("DNS deletion check error: %v\n", err)
+					return false
+				}
+				if record != nil {
+					GinkgoWriter.Printf("DNS record still exists: ID=%s, Content=%s, Comment=%q\n", record.ID, record.Content, record.Comment)
+				}
+				return record == nil
 			}, DefaultTimeout, DefaultInterval).Should(BeTrue(), "DNS record should be deleted when route is removed")
 
 			By("Deleting the AccessPolicy")
@@ -560,7 +567,14 @@ var _ = Describe("Multi-Resource E2E", Label("cloudflare"), Ordered, func() {
 			By("Verifying via CF API: DNS records gone")
 			Eventually(func() bool {
 				record, err := getDNSRecordFromCloudflare(ctx, cfClient, zoneID, hostname, "CNAME")
-				return err == nil && record == nil
+				if err != nil {
+					GinkgoWriter.Printf("DNS deletion check error: %v\n", err)
+					return false
+				}
+				if record != nil {
+					GinkgoWriter.Printf("DNS record still exists: ID=%s, Content=%s, Comment=%q\n", record.ID, record.Content, record.Comment)
+				}
+				return record == nil
 			}, DefaultTimeout, DefaultInterval).Should(BeTrue(),
 				"DNS record should be deleted from Cloudflare after namespace deletion")
 

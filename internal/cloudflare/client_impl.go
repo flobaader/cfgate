@@ -1885,6 +1885,15 @@ func accessRuleToAPI(rule *AccessRuleParam) zero_trust.AccessRuleUnionParam {
 		}
 	}
 
+	// IPListID -> zero_trust.IPListRuleParam
+	if rule.IPListID != nil {
+		return zero_trust.IPListRuleParam{
+			IPList: cf.F(zero_trust.IPListRuleIPListParam{
+				ID: cf.F(*rule.IPListID),
+			}),
+		}
+	}
+
 	// Country -> zero_trust.CountryRuleParam
 	if rule.Country != nil {
 		return zero_trust.CountryRuleParam{
@@ -1936,6 +1945,15 @@ func accessRuleToAPI(rule *AccessRuleParam) zero_trust.AccessRuleUnionParam {
 		return zero_trust.DomainRuleParam{
 			EmailDomain: cf.F(zero_trust.DomainRuleEmailDomainParam{
 				Domain: cf.F(*rule.EmailDomain),
+			}),
+		}
+	}
+
+	// EmailListID -> zero_trust.EmailListRuleParam
+	if rule.EmailListID != nil {
+		return zero_trust.EmailListRuleParam{
+			EmailList: cf.F(zero_trust.EmailListRuleEmailListParam{
+				ID: cf.F(*rule.EmailListID),
 			}),
 		}
 	}
