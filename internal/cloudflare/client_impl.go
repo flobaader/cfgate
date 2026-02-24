@@ -186,6 +186,10 @@ func (c *clientImpl) GetTunnelToken(ctx context.Context, accountID, tunnelID str
 // UpdateTunnelConfiguration updates the tunnel's ingress configuration.
 // This is an atomic replacement of the entire configuration.
 func (c *clientImpl) UpdateTunnelConfiguration(ctx context.Context, accountID, tunnelID string, config TunnelConfiguration) error {
+	if err := validateOriginRequests(config); err != nil {
+		return err
+	}
+
 	// Convert our config to cloudflare-go config
 	ingressRules := make([]zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress, len(config.Ingress))
 	for i, rule := range config.Ingress {
@@ -626,6 +630,21 @@ func globalOriginRequestToAPI(config *OriginRequestConfig) zero_trust.TunnelClou
 	}
 
 	return req
+}
+
+// validateOriginRequests checks that no origin config sets both HTTP2Origin and
+// H2cOrigin. CRD validation prevents this, but the client layer should not
+// depend on admission control alone.
+func validateOriginRequests(config TunnelConfiguration) error {
+	if config.OriginRequest != nil && config.OriginRequest.HTTP2Origin && config.OriginRequest.H2cOrigin {
+		return errors.New("http2Origin and h2cOrigin are mutually exclusive in global origin defaults")
+	}
+	for i, rule := range config.Ingress {
+		if rule.OriginRequest != nil && rule.OriginRequest.HTTP2Origin && rule.OriginRequest.H2cOrigin {
+			return fmt.Errorf("http2Origin and h2cOrigin are mutually exclusive in ingress rule %d (%s)", i, rule.Hostname)
+		}
+	}
+	return nil
 }
 
 // generateTunnelSecret generates a cryptographically random tunnel secret.
