@@ -1168,5 +1168,120 @@ SIb3DQEBCwUAA0EA+test+certificate+data+here==
 				return r2.Annotations["cfgate.io/origin-http2"] == "false"
 			}, ShortTimeout, DefaultInterval).Should(BeTrue())
 		})
+
+		It("should apply origin-h2c annotation to tunnel config", func() {
+			By("Creating test Service")
+			svcName := testID("svc")
+			createTestService(ctx, k8sClient, svcName, namespace.Name, 8080)
+
+			By("Creating HTTPRoute with origin-h2c=true annotation")
+			hostname := fmt.Sprintf("%s.%s", testID("h2c"), testEnv.CloudflareZoneName)
+			routeName := testID("route")
+
+			route := &gatewayv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      routeName,
+					Namespace: namespace.Name,
+					Annotations: map[string]string{
+						"cfgate.io/origin-h2c": "true", // Enable HTTP/2 cleartext to origin
+						"cfgate.io/dns-sync":   "enabled",
+					},
+				},
+				Spec: gatewayv1.HTTPRouteSpec{
+					CommonRouteSpec: gatewayv1.CommonRouteSpec{
+						ParentRefs: []gatewayv1.ParentReference{
+							{
+								Name:      gatewayv1.ObjectName(gwName),
+								Namespace: (*gatewayv1.Namespace)(&namespace.Name),
+							},
+						},
+					},
+					Hostnames: []gatewayv1.Hostname{gatewayv1.Hostname(hostname)},
+					Rules: []gatewayv1.HTTPRouteRule{
+						{
+							BackendRefs: []gatewayv1.HTTPBackendRef{
+								{
+									BackendRef: gatewayv1.BackendRef{
+										BackendObjectReference: gatewayv1.BackendObjectReference{
+											Name: gatewayv1.ObjectName(svcName),
+											Port: ptrTo(gatewayv1.PortNumber(8080)),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, route)).To(Succeed())
+
+			By("Waiting for tunnel to sync configuration")
+			Eventually(func() bool {
+				var t cfgatev1alpha1.CloudflareTunnel
+				if err := k8sClient.Get(ctx, client.ObjectKey{Name: sharedTunnel.Name, Namespace: sharedTunnel.Namespace}, &t); err != nil {
+					return false
+				}
+				return t.Status.ConnectedRouteCount > 0
+			}, DefaultTimeout, DefaultInterval).Should(BeTrue())
+
+			By("Verifying route annotations are preserved")
+			var r gatewayv1.HTTPRoute
+			Expect(k8sClient.Get(ctx, client.ObjectKey{Name: routeName, Namespace: namespace.Name}, &r)).To(Succeed())
+			Expect(r.Annotations["cfgate.io/origin-h2c"]).To(Equal("true"),
+				"H2C annotation should be preserved")
+
+			By("Verifying tunnel ConfigurationSynced condition")
+			waitForTunnelCondition(ctx, k8sClient, sharedTunnel.Name, sharedTunnel.Namespace, "ConfigurationSynced", metav1.ConditionTrue, DefaultTimeout)
+
+			By("Testing with origin-h2c=false")
+			routeName2 := testID("route-noh2c")
+			hostname2 := fmt.Sprintf("%s.%s", testID("noh2c"), testEnv.CloudflareZoneName)
+
+			route2 := &gatewayv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      routeName2,
+					Namespace: namespace.Name,
+					Annotations: map[string]string{
+						"cfgate.io/origin-h2c": "false", // Disable HTTP/2 cleartext to origin
+						"cfgate.io/dns-sync":   "enabled",
+					},
+				},
+				Spec: gatewayv1.HTTPRouteSpec{
+					CommonRouteSpec: gatewayv1.CommonRouteSpec{
+						ParentRefs: []gatewayv1.ParentReference{
+							{
+								Name:      gatewayv1.ObjectName(gwName),
+								Namespace: (*gatewayv1.Namespace)(&namespace.Name),
+							},
+						},
+					},
+					Hostnames: []gatewayv1.Hostname{gatewayv1.Hostname(hostname2)},
+					Rules: []gatewayv1.HTTPRouteRule{
+						{
+							BackendRefs: []gatewayv1.HTTPBackendRef{
+								{
+									BackendRef: gatewayv1.BackendRef{
+										BackendObjectReference: gatewayv1.BackendObjectReference{
+											Name: gatewayv1.ObjectName(svcName),
+											Port: ptrTo(gatewayv1.PortNumber(8080)),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, route2)).To(Succeed())
+
+			By("Verifying second route annotation is preserved")
+			Eventually(func() bool {
+				var r2 gatewayv1.HTTPRoute
+				if err := k8sClient.Get(ctx, client.ObjectKey{Name: routeName2, Namespace: namespace.Name}, &r2); err != nil {
+					return false
+				}
+				return r2.Annotations["cfgate.io/origin-h2c"] == "false"
+			}, ShortTimeout, DefaultInterval).Should(BeTrue())
+		})
 	})
 })

@@ -171,6 +171,81 @@ var _ = Describe("CEL Validation E2E", func() {
 		})
 	})
 
+	Context("CloudflareTunnel validation", func() {
+		It("should reject tunnel with both h2cOrigin and http2Origin", func() {
+			By("Creating CloudflareTunnel with both h2cOrigin and http2Origin set")
+			tunnel := &cfgatev1alpha1.CloudflareTunnel{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      testID("h2c-http2-conflict"),
+					Namespace: namespace.Name,
+				},
+				Spec: cfgatev1alpha1.CloudflareTunnelSpec{
+					Tunnel: cfgatev1alpha1.TunnelIdentity{
+						Name: testID("tunnel"),
+					},
+					Cloudflare: cfgatev1alpha1.CloudflareConfig{
+						AccountID: testEnv.CloudflareAccountID,
+						SecretRef: cfgatev1alpha1.SecretRef{
+							Name: "cloudflare-credentials",
+						},
+					},
+					OriginDefaults: cfgatev1alpha1.OriginDefaults{
+						HTTP2Origin: true,
+						H2cOrigin:   true, // Mutually exclusive with HTTP2Origin
+					},
+				},
+			}
+
+			By("Expecting API to reject the resource")
+			err := k8sClient.Create(ctx, tunnel)
+			Expect(err).To(HaveOccurred(), "API should reject tunnel with both h2cOrigin and http2Origin")
+			Expect(err.Error()).To(ContainSubstring("mutually exclusive"),
+				"Error should mention mutual exclusivity")
+		})
+
+		It("should accept tunnel with only h2cOrigin", func() {
+			By("Creating CloudflareTunnel with h2cOrigin only")
+			tunnel := &cfgatev1alpha1.CloudflareTunnel{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      testID("h2c-only"),
+					Namespace: namespace.Name,
+				},
+				Spec: cfgatev1alpha1.CloudflareTunnelSpec{
+					Tunnel: cfgatev1alpha1.TunnelIdentity{
+						Name: testID("tunnel"),
+					},
+					Cloudflare: cfgatev1alpha1.CloudflareConfig{
+						AccountID: testEnv.CloudflareAccountID,
+						SecretRef: cfgatev1alpha1.SecretRef{
+							Name: "cloudflare-credentials",
+						},
+					},
+					OriginDefaults: cfgatev1alpha1.OriginDefaults{
+						H2cOrigin: true,
+					},
+				},
+			}
+
+			By("Expecting API to accept the resource")
+			err := k8sClient.Create(ctx, tunnel)
+			Expect(err).NotTo(HaveOccurred(), "API should accept tunnel with only h2cOrigin")
+
+			By("Cleaning up created tunnel")
+			Eventually(func() error {
+				var created cfgatev1alpha1.CloudflareTunnel
+				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(tunnel), &created); err != nil {
+					return err
+				}
+				if len(created.Finalizers) > 0 {
+					created.Finalizers = nil
+					return k8sClient.Update(ctx, &created)
+				}
+				return nil
+			}, DefaultTimeout, DefaultInterval).Should(Succeed())
+			Expect(k8sClient.Delete(ctx, tunnel)).To(Succeed())
+		})
+	})
+
 	Context("valid resources", func() {
 		It("should accept valid AccessPolicy with targetRef", func() {
 			By("Creating valid AccessPolicy with targetRef")
