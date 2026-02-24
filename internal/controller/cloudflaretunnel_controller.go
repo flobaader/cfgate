@@ -539,11 +539,13 @@ func (r *CloudflareTunnelReconciler) syncConfiguration(ctx context.Context, tunn
 	var defaults *cloudflare.OriginRequestConfig
 	if tunnel.Spec.OriginDefaults.ConnectTimeout != "" ||
 		tunnel.Spec.OriginDefaults.NoTLSVerify ||
-		tunnel.Spec.OriginDefaults.HTTP2Origin {
+		tunnel.Spec.OriginDefaults.HTTP2Origin ||
+		tunnel.Spec.OriginDefaults.H2cOrigin {
 		defaults = &cloudflare.OriginRequestConfig{
 			ConnectTimeout: tunnel.Spec.OriginDefaults.ConnectTimeout,
 			NoTLSVerify:    tunnel.Spec.OriginDefaults.NoTLSVerify,
 			HTTP2Origin:    tunnel.Spec.OriginDefaults.HTTP2Origin,
+			H2cOrigin:      tunnel.Spec.OriginDefaults.H2cOrigin,
 		}
 	}
 
@@ -725,6 +727,7 @@ func (r *CloudflareTunnelReconciler) buildRulesFromHTTPRoute(route *gateway.HTTP
 						ConnectTimeout: originConfig.ConnectTimeout,
 						NoTLSVerify:    originConfig.NoTLSVerify,
 						HTTP2Origin:    originConfig.HTTP2Origin,
+						H2cOrigin:      originConfig.H2cOrigin,
 						HTTPHostHeader: originConfig.HTTPHostHeader,
 					}
 				}
