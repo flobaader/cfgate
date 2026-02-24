@@ -310,6 +310,10 @@ type OriginRequestConfig struct {
 	// HTTP2Origin enables HTTP/2 to origin.
 	HTTP2Origin bool `json:"http2Origin,omitempty"`
 
+	// H2cOrigin enables HTTP/2 cleartext (h2c) to origin.
+	// Mutually exclusive with HTTP2Origin.
+	H2cOrigin bool `json:"h2cOrigin,omitempty"`
+
 	// MatchSNIToHost passes SNI matching hostname to origin.
 	MatchSNIToHost bool `json:"matchSniToHost,omitempty"`
 

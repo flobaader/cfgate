@@ -208,10 +208,23 @@ func (c *clientImpl) UpdateTunnelConfiguration(ctx context.Context, accountID, t
 		cfConfig.OriginRequest = cf.F(globalOriginRequestToAPI(config.OriginRequest))
 	}
 
+	// Collect extra options for h2cOrigin, which is not in the SDK schema.
+	// The CF API stores the full config JSON — cloudflared parses it directly,
+	// so undocumented fields are preserved and returned.
+	var opts []option.RequestOption
+	if config.OriginRequest != nil && config.OriginRequest.H2cOrigin {
+		opts = append(opts, option.WithJSONSet("config.originRequest.h2cOrigin", true))
+	}
+	for i, rule := range config.Ingress {
+		if rule.OriginRequest != nil && rule.OriginRequest.H2cOrigin {
+			opts = append(opts, option.WithJSONSet(fmt.Sprintf("config.ingress.%d.originRequest.h2cOrigin", i), true))
+		}
+	}
+
 	_, err := c.api.ZeroTrust.Tunnels.Cloudflared.Configurations.Update(ctx, tunnelID, zero_trust.TunnelCloudflaredConfigurationUpdateParams{
 		AccountID: cf.F(accountID),
 		Config:    cf.F(cfConfig),
-	})
+	}, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to update tunnel configuration: %w", err)
 	}
