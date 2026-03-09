@@ -1,8 +1,8 @@
 # cfgate
 
-[![Latest Release](https://img.shields.io/github/v/release/cfgate/cfgate?style=flat)](https://github.com/cfgate/cfgate/releases/latest) [![Image](https://img.shields.io/github/v/release/cfgate/cfgate?style=flat&label=image&logo=docker&logoColor=white&color=2496ED)](https://github.com/orgs/cfgate/packages/container/package/cfgate) [![Helm Chart](https://img.shields.io/badge/chart-GHCR-0F1689?style=flat&logo=helm&logoColor=white)](https://github.com/orgs/cfgate/packages/container/package/charts%2Fcfgate) [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/cfgate)](https://artifacthub.io/packages/search?repo=cfgate)
+[![Latest Release](https://img.shields.io/github/v/release/flobaader/cfgate?style=flat)](https://github.com/flobaader/cfgate/releases/latest) [![Image](https://img.shields.io/badge/image-ghcr.io%2Fflobaader%2Fcfgate-2496ED?style=flat&logo=docker&logoColor=white)](https://github.com/flobaader/cfgate/pkgs/container/cfgate) [![Helm Chart](https://img.shields.io/badge/chart-GHCR-0F1689?style=flat&logo=helm&logoColor=white)](https://github.com/orgs/cfgate/packages/container/package/charts%2Fcfgate) [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/cfgate)](https://artifacthub.io/packages/search?repo=cfgate)
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/cfgate/cfgate/ci.yml?style=flat)](https://github.com/cfgate/cfgate/actions/workflows/ci.yml) [![Go Report Card](https://goreportcard.com/badge/github.com/cfgate/cfgate)](https://goreportcard.com/report/github.com/cfgate/cfgate) [![Go Reference](https://pkg.go.dev/badge/github.com/cfgate/cfgate.svg)](https://pkg.go.dev/cfgate.io/cfgate/)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/flobaader/cfgate/ci.yml?style=flat)](https://github.com/flobaader/cfgate/actions/workflows/ci.yml) [![Go Report Card](https://goreportcard.com/badge/github.com/flobaader/cfgate)](https://goreportcard.com/report/github.com/flobaader/cfgate) [![Go Reference](https://pkg.go.dev/badge/github.com/flobaader/cfgate.svg)](https://pkg.go.dev/cfgate.io/cfgate/)
 
 cfgate is a Kubernetes operator that manages Cloudflare Tunnels, DNS records, and Access policies through three custom resources. It uses [Gateway API](https://gateway-api.sigs.k8s.io/), the CNCF standard replacing Ingress, so routing configuration works the same as Envoy, Istio, or Cilium. Clusters running cfgate need no public IP, no ingress controller, and no load balancer. Traffic reaches services through Cloudflare Tunnels: outbound-only connections from the cluster to Cloudflare's edge.
 
@@ -30,7 +30,7 @@ Define a CloudflareTunnel, point a Gateway at it, and attach HTTPRoutes to the G
 ```bash
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml
 
-kubectl apply -f https://github.com/cfgate/cfgate/releases/latest/download/install.yaml
+kubectl apply -f https://github.com/flobaader/cfgate/releases/latest/download/install.yaml
 ```
 
 **Helm**

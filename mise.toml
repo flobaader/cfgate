@@ -3,7 +3,7 @@
 [env]
 _.file = ["secrets.enc.yaml", ".env"]
 IMG = "cfgate:local"
-REGISTRY = "ghcr.io/cfgate/cfgate"
+REGISTRY = "ghcr.io/flobaader/cfgate"
 CLUSTER_NAME = "abaddon"
 GATEWAY_API_VERSION = "v1.4.1"
 
