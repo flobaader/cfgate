@@ -710,6 +710,14 @@ func (r *CloudflareDNSReconciler) syncRecords(ctx context.Context, dns *cfgatev1
 	var syncedCount, pendingCount, failedCount int32
 
 	for hostname, hostnameConfig := range hostnameConfigs {
+		// Validate hostname depth - Cloudflare Universal SSL only covers single-level wildcards
+		if err := cloudflare.ValidateHostnameDepth(hostname); err != nil {
+			logger.Error(err, "hostname validation failed", "hostname", hostname)
+			r.Recorder.Eventf(dns, nil, corev1.EventTypeWarning, "InvalidHostname", "Validation",
+				"Hostname %s rejected: %v", hostname, err)
+			return fmt.Errorf("hostname %s: %w", hostname, err)
+		}
+
 		// Determine zone for this hostname
 		zoneName := cloudflare.ExtractZoneFromHostname(hostname)
 		zoneID, ok := zones[zoneName]

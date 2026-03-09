@@ -406,6 +406,46 @@ func ExtractZoneFromHostname(hostname string) string {
 	return etld
 }
 
+// ErrMultiLevelSubdomain is returned when a hostname has more than one subdomain level.
+// Cloudflare Universal SSL only covers *.example.com, not *.sub.example.com.
+var ErrMultiLevelSubdomain = fmt.Errorf("multi-level subdomain not supported by Cloudflare Universal SSL")
+
+// ValidateHostnameDepth validates that a hostname does not exceed one subdomain level.
+// Cloudflare Universal SSL certificates only cover *.example.com, not *.*.example.com.
+// For deeper subdomains, users need Cloudflare Advanced Certificate Manager or a custom certificate.
+//
+// Examples:
+//   - "app.example.com" -> valid (1 level: app)
+//   - "api.staging.example.com" -> invalid (2 levels: api.staging)
+//   - "example.com" -> valid (0 levels, apex domain)
+func ValidateHostnameDepth(hostname string) error {
+	zone := ExtractZoneFromHostname(hostname)
+	if zone == "" || zone == hostname {
+		// Apex domain or unable to determine zone
+		return nil
+	}
+
+	// Calculate subdomain depth
+	// hostname = "api.staging.example.com", zone = "example.com"
+	// subdomain = "api.staging"
+	subdomain := strings.TrimSuffix(hostname, "."+zone)
+	if subdomain == hostname {
+		// No subdomain (apex domain)
+		return nil
+	}
+
+	// Count levels in subdomain
+	levels := strings.Count(subdomain, ".") + 1
+	if levels > 1 {
+		return fmt.Errorf("%w: hostname %q has %d subdomain levels (max 1); "+
+			"Cloudflare Universal SSL only covers *.%s, not deeper wildcards. "+
+			"Use a single-level subdomain like 'myapp.%s' or enable Cloudflare Advanced Certificate Manager",
+			ErrMultiLevelSubdomain, hostname, levels, zone, zone)
+	}
+
+	return nil
+}
+
 // ValidateTTL validates a TTL value before API calls.
 // Valid values: 1 (auto) or 60-86400 seconds.
 func ValidateTTL(ttl int) error {
