@@ -69,6 +69,10 @@ func extractDNSGatewayRoutesEnabled(obj client.Object) []string {
 // HostnameConfig holds per-hostname DNS configuration from route annotations,
 // passing TTL and Proxied settings from HTTPRoute annotations to syncRecords.
 type HostnameConfig struct {
+	// Target is the DNS record target/content. Empty means use the resolved global target.
+	Target string
+	// RecordType is the DNS record type.
+	RecordType cfgatev1alpha1.RecordType
 	// TTL is the DNS record TTL in seconds (0 means use default)
 	TTL int32
 	// Proxied indicates if Cloudflare proxy should be enabled (nil means use default)
@@ -110,6 +114,7 @@ type CloudflareDNSReconciler struct {
 // +kubebuilder:rbac:groups=cfgate.io,resources=cloudflarednses/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cfgate.io,resources=cloudflarednses/finalizers,verbs=update
 // +kubebuilder:rbac:groups=cfgate.io,resources=cloudflaretunnels,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=gateways,verbs=get;list;watch
 
@@ -458,11 +463,6 @@ func (r *CloudflareDNSReconciler) resolveTarget(ctx context.Context, dns *cfgate
 
 	// 2. External target mode
 	if dns.Spec.ExternalTarget != nil {
-		if dns.Spec.ExternalTarget.Type != cfgatev1alpha1.RecordTypeCNAME {
-			log.FromContext(ctx).Info("externalTarget type not yet supported, records will be created as CNAME",
-				"configuredType", dns.Spec.ExternalTarget.Type,
-			)
-		}
 		return dns.Spec.ExternalTarget.Value, nil, nil
 	}
 
@@ -495,7 +495,20 @@ func (r *CloudflareDNSReconciler) collectHostnames(ctx context.Context, dns *cfg
 
 	// Collect from explicit hostnames (no route-level config)
 	for _, explicit := range dns.Spec.Source.Explicit {
-		hostnames[explicit.Hostname] = HostnameConfig{}
+		config := HostnameConfig{
+			RecordType: cfgatev1alpha1.RecordTypeCNAME,
+		}
+		if dns.Spec.ExternalTarget != nil {
+			config.RecordType = dns.Spec.ExternalTarget.Type
+		}
+		if explicit.Target != "" {
+			target, err := renderExplicitTarget(explicit.Target, tunnel)
+			if err != nil {
+				return nil, fmt.Errorf("explicit hostname %s: %w", explicit.Hostname, err)
+			}
+			config.Target = target
+		}
+		hostnames[explicit.Hostname] = config
 	}
 
 	// Collect from Gateway routes if enabled
@@ -517,14 +530,13 @@ func (r *CloudflareDNSReconciler) collectHostnames(ctx context.Context, dns *cfg
 // Gateways associated with the given tunnel. Returns a map of hostname to
 // HostnameConfig with per-route annotation settings.
 func (r *CloudflareDNSReconciler) collectHostnamesFromRoutes(ctx context.Context, dns *cfgatev1alpha1.CloudflareDNS, tunnel *cfgatev1alpha1.CloudflareTunnel) (map[string]HostnameConfig, error) {
-	logger := log.FromContext(ctx).WithName("controller").WithName("dns")
-
 	if tunnel == nil {
 		return nil, nil
 	}
 
-	if dns.Spec.Source.GatewayRoutes.NamespaceSelector != nil {
-		logger.Info("namespaceSelector is not yet implemented, routes from all namespaces will be included")
+	allowedNamespaces, err := r.resolveSelectedNamespaces(ctx, dns.Spec.Source.GatewayRoutes.NamespaceSelector)
+	if err != nil {
+		return nil, err
 	}
 
 	hostnames := make(map[string]HostnameConfig)
@@ -562,6 +574,9 @@ func (r *CloudflareDNSReconciler) collectHostnamesFromRoutes(ctx context.Context
 
 	for _, gw := range relevantGateways {
 		for _, route := range routes.Items {
+			if len(allowedNamespaces) > 0 && !allowedNamespaces[route.Namespace] {
+				continue
+			}
 			if filter := dns.Spec.Source.GatewayRoutes.AnnotationFilter; filter != "" {
 				if parts := strings.SplitN(filter, "=", 2); len(parts) == 2 {
 					if val, ok := route.Annotations[parts[0]]; !ok || val != parts[1] {
@@ -587,7 +602,9 @@ func (r *CloudflareDNSReconciler) collectHostnamesFromRoutes(ctx context.Context
 				if string(parentRef.Name) == gw.Name && parentNS == gw.Namespace {
 					dnsConfig := annotations.ParseDNSConfig(&route)
 					config := HostnameConfig{
-						TTL: int32(dnsConfig.TTL),
+						Target:     tunnel.Status.TunnelDomain,
+						RecordType: cfgatev1alpha1.RecordTypeCNAME,
+						TTL:        int32(dnsConfig.TTL),
 					}
 					if proxiedStr := annotations.GetAnnotation(&route, annotations.AnnotationCloudflareProxied); proxiedStr != "" {
 						proxied := dnsConfig.Proxied
@@ -603,6 +620,31 @@ func (r *CloudflareDNSReconciler) collectHostnamesFromRoutes(ctx context.Context
 	}
 
 	return hostnames, nil
+}
+
+func (r *CloudflareDNSReconciler) resolveSelectedNamespaces(ctx context.Context, selector *cfgatev1alpha1.DNSNamespaceSelector) (map[string]bool, error) {
+	if selector == nil {
+		return nil, nil
+	}
+
+	allowed := make(map[string]bool)
+	for _, name := range selector.MatchNames {
+		allowed[name] = true
+	}
+
+	if len(selector.MatchLabels) == 0 {
+		return allowed, nil
+	}
+
+	var namespaces corev1.NamespaceList
+	if err := r.APIReader.List(ctx, &namespaces, client.MatchingLabels(selector.MatchLabels)); err != nil {
+		return nil, fmt.Errorf("failed to list namespaces for namespaceSelector: %w", err)
+	}
+	for _, namespace := range namespaces.Items {
+		allowed[namespace.Name] = true
+	}
+
+	return allowed, nil
 }
 
 // isGatewayParentRef returns true if the parentRef targets a Gateway resource.
@@ -671,6 +713,18 @@ func (r *CloudflareDNSReconciler) syncRecords(ctx context.Context, dns *cfgatev1
 		// Determine zone for this hostname
 		zoneName := cloudflare.ExtractZoneFromHostname(hostname)
 		zoneID, ok := zones[zoneName]
+		recordType := hostnameConfig.RecordType
+		if recordType == "" {
+			if dns.Spec.ExternalTarget != nil {
+				recordType = dns.Spec.ExternalTarget.Type
+			} else {
+				recordType = cfgatev1alpha1.RecordTypeCNAME
+			}
+		}
+		targetValue := target
+		if hostnameConfig.Target != "" {
+			targetValue = hostnameConfig.Target
+		}
 		if !ok {
 			logger.Info("zone not configured for hostname",
 				"hostname", hostname,
@@ -678,7 +732,7 @@ func (r *CloudflareDNSReconciler) syncRecords(ctx context.Context, dns *cfgatev1
 			)
 			recordStatuses = append(recordStatuses, cfgatev1alpha1.DNSRecordSyncStatus{
 				Hostname: hostname,
-				Type:     "CNAME",
+				Type:     string(recordType),
 				Status:   "Failed",
 				Error:    fmt.Sprintf("zone %s not configured", zoneName),
 			})
@@ -715,7 +769,7 @@ func (r *CloudflareDNSReconciler) syncRecords(ctx context.Context, dns *cfgatev1
 		}
 
 		comment := "managed by cfgate"
-		desired := cloudflare.BuildCNAMERecord(hostname, target, proxied, int(ttl), comment)
+		desired := buildDesiredDNSRecord(hostname, recordType, targetValue, proxied, int(ttl), comment)
 
 		// Sync record using policy
 		record, modified, err := dnsService.SyncRecordWithPolicy(ctx, zoneID, desired, ownerID, policy)
@@ -723,7 +777,7 @@ func (r *CloudflareDNSReconciler) syncRecords(ctx context.Context, dns *cfgatev1
 			logger.Error(err, "failed to sync DNS record", "hostname", hostname)
 			recordStatuses = append(recordStatuses, cfgatev1alpha1.DNSRecordSyncStatus{
 				Hostname: hostname,
-				Type:     "CNAME",
+				Type:     string(recordType),
 				Status:   "Failed",
 				Error:    err.Error(),
 			})
@@ -759,8 +813,8 @@ func (r *CloudflareDNSReconciler) syncRecords(ctx context.Context, dns *cfgatev1
 
 		recordStatuses = append(recordStatuses, cfgatev1alpha1.DNSRecordSyncStatus{
 			Hostname: hostname,
-			Type:     record.Type,
-			Target:   record.Content,
+			Type:     string(recordType),
+			Target:   targetValue,
 			Proxied:  record.Proxied,
 			TTL:      int32(record.TTL),
 			Status:   recordStatus,
@@ -786,6 +840,34 @@ func (r *CloudflareDNSReconciler) syncRecords(ctx context.Context, dns *cfgatev1
 	dns.Status.FailedRecords = failedCount
 
 	return nil
+}
+
+func buildDesiredDNSRecord(hostname string, recordType cfgatev1alpha1.RecordType, target string, proxied bool, ttl int, comment string) cloudflare.DNSRecord {
+	if recordType == "" {
+		recordType = cfgatev1alpha1.RecordTypeCNAME
+	}
+
+	return cloudflare.DNSRecord{
+		Type:    string(recordType),
+		Name:    hostname,
+		Content: target,
+		Proxied: proxied,
+		TTL:     ttl,
+		Comment: comment,
+	}
+}
+
+func renderExplicitTarget(template string, tunnel *cfgatev1alpha1.CloudflareTunnel) (string, error) {
+	if !strings.Contains(template, "{{ .TunnelDomain }}") {
+		return template, nil
+	}
+	if tunnel == nil {
+		return "", fmt.Errorf("target template requires tunnelRef")
+	}
+	if tunnel.Status.TunnelDomain == "" {
+		return "", fmt.Errorf("target template requires a ready tunnel with tunnelDomain")
+	}
+	return strings.ReplaceAll(template, "{{ .TunnelDomain }}", tunnel.Status.TunnelDomain), nil
 }
 
 // deleteOrphanedRecords deletes records that were previously synced but are no longer wanted.
@@ -913,10 +995,10 @@ func (r *CloudflareDNSReconciler) reconcileDelete(ctx context.Context, dns *cfga
 	shouldDeleteOnResourceRemoval := dns.Spec.CleanupPolicy.DeleteOnResourceRemoval == nil || *dns.Spec.CleanupPolicy.DeleteOnResourceRemoval
 	if dns.Spec.Policy == cfgatev1alpha1.DNSPolicySync && shouldDeleteOnResourceRemoval {
 		if err := r.cleanupRecordsWithFallback(ctx, dns); err != nil {
-			logger.Error(err, "failed to cleanup DNS records, records may be orphaned")
-			r.Recorder.Eventf(dns, nil, corev1.EventTypeWarning, "DNSCleanupFailed", "Cleanup",
-				"DNS cleanup failed, records may be orphaned: %v", err)
-			// Continue with finalizer removal - don't block deletion
+			logger.Error(err, "failed to cleanup DNS records, keeping finalizer")
+			r.Recorder.Eventf(dns, nil, corev1.EventTypeWarning, "DNSCleanupBlocked", "Cleanup",
+				"DNS cleanup failed; keeping finalizer until cleanup succeeds or cleanup is explicitly disabled: %v", err)
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 	} else if dns.Spec.Policy != cfgatev1alpha1.DNSPolicySync {
 		logger.Info("skipping DNS cleanup due to policy", "policy", dns.Spec.Policy)

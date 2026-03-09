@@ -754,13 +754,26 @@ func (r *CloudflareAccessPolicyReconciler) syncPolicies(
 			}
 		}
 
+		include, err := convertAccessRules(log, rule.Include)
+		if err != nil {
+			return nil, fmt.Errorf("policy %q include rules: %w", rule.Name, err)
+		}
+		exclude, err := convertAccessRules(log, rule.Exclude)
+		if err != nil {
+			return nil, fmt.Errorf("policy %q exclude rules: %w", rule.Name, err)
+		}
+		require, err := convertAccessRules(log, rule.Require)
+		if err != nil {
+			return nil, fmt.Errorf("policy %q require rules: %w", rule.Name, err)
+		}
+
 		params = append(params, cloudflare.CreatePolicyParams{
 			Name:                         rule.Name,
 			Decision:                     rule.Decision,
 			Precedence:                   precedence,
-			Include:                      convertAccessRules(log, rule.Include),
-			Exclude:                      convertAccessRules(log, rule.Exclude),
-			Require:                      convertAccessRules(log, rule.Require),
+			Include:                      include,
+			Exclude:                      exclude,
+			Require:                      require,
 			SessionDuration:              rule.SessionDuration,
 			PurposeJustificationRequired: rule.PurposeJustificationRequired,
 			PurposeJustificationPrompt:   rule.PurposeJustificationPrompt,
@@ -783,7 +796,8 @@ func (r *CloudflareAccessPolicyReconciler) syncPolicies(
 //   - P1: Basic IdP (Email, EmailList, EmailDomain, OIDCClaim)
 //   - P2: Google Workspace (GSuiteGroup)
 //   - P3: Deferred to v0.2.0 (Certificate, Group, GitHub, Azure, Okta, SAML, etc.)
-func convertAccessRules(log logr.Logger, crdRules []cfgatev1alpha1.AccessRule) []cloudflare.AccessRuleParam {
+func convertAccessRules(log logr.Logger, crdRules []cfgatev1alpha1.AccessRule) ([]cloudflare.AccessRuleParam, error) {
+	_ = log
 	var rules []cloudflare.AccessRuleParam
 	for _, r := range crdRules {
 		// ============================================================
@@ -809,9 +823,7 @@ func convertAccessRules(log logr.Logger, crdRules []cfgatev1alpha1.AccessRule) [
 					IPListID: &id,
 				})
 			} else if r.IPList.Name != "" {
-				log.Info("ipList.name lookup is not yet supported; use ipList.id instead",
-					"ipListName", r.IPList.Name,
-				)
+				return nil, fmt.Errorf("ipList.name is not supported yet; use ipList.id for %q", r.IPList.Name)
 			}
 			continue
 		}
@@ -877,9 +889,7 @@ func convertAccessRules(log logr.Logger, crdRules []cfgatev1alpha1.AccessRule) [
 					EmailListID: &id,
 				})
 			} else if r.EmailList.Name != "" {
-				log.Info("emailList.name lookup is not yet supported; use emailList.id instead",
-					"emailListName", r.EmailList.Name,
-				)
+				return nil, fmt.Errorf("emailList.name is not supported yet; use emailList.id for %q", r.EmailList.Name)
 			}
 			continue
 		}
@@ -926,7 +936,7 @@ func convertAccessRules(log logr.Logger, crdRules []cfgatev1alpha1.AccessRule) [
 		// Certificate, CommonName, Group, GitHub, Azure, Okta, SAML,
 		// AuthenticationMethod, DevicePosture, ExternalEvaluation, LoginMethod
 	}
-	return rules
+	return rules, nil
 }
 
 // convertApprovalGroups converts CRD ApprovalGroup slice to API ApprovalGroupParam slice.
@@ -1132,10 +1142,10 @@ func (r *CloudflareAccessPolicyReconciler) reconcileDelete(
 	// Get credentials for deletion
 	accessService, accountID, err := r.resolveCredentials(ctx, policy)
 	if err != nil {
-		log.Error(err, "failed to resolve credentials for deletion, removing finalizer anyway")
-		r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "CleanupSkipped", "Delete",
-			"Could not resolve credentials for cleanup: %s", err.Error())
-		return r.removeFinalizer(ctx, policy)
+		log.Error(err, "failed to resolve credentials for deletion, keeping finalizer")
+		r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "CleanupBlocked", "Delete",
+			"Could not resolve credentials for cleanup; keeping finalizer until cleanup succeeds or cfgate.io/deletion-policy=orphan is set: %s", err.Error())
+		return ctrl.Result{RequeueAfter: accessPolicyRequeueAfterError}, nil
 	}
 
 	// Delete Access Application (cascades to policies)
@@ -1144,10 +1154,10 @@ func (r *CloudflareAccessPolicyReconciler) reconcileDelete(
 			"applicationId", policy.Status.ApplicationID,
 		)
 		if err := accessService.DeleteApplication(ctx, accountID, policy.Status.ApplicationID); err != nil {
-			// Log but don't block finalizer removal
 			log.Error(err, "failed to delete Access Application")
 			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "CleanupError", "Delete",
 				"Failed to delete Access Application: %s", err.Error())
+			return ctrl.Result{RequeueAfter: accessPolicyRequeueAfterError}, nil
 		} else {
 			r.Recorder.Eventf(policy, nil, corev1.EventTypeNormal, "ApplicationDeleted", "Delete",
 				"Access Application %s deleted", policy.Status.ApplicationID)
@@ -1162,6 +1172,9 @@ func (r *CloudflareAccessPolicyReconciler) reconcileDelete(
 		)
 		if err := r.revokeServiceToken(ctx, accessService, accountID, tokenID); err != nil {
 			log.Error(err, "failed to revoke service token", "tokenName", name)
+			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "CleanupError", "Delete",
+				"Failed to revoke service token %s: %s", name, err.Error())
+			return ctrl.Result{RequeueAfter: accessPolicyRequeueAfterError}, nil
 		}
 	}
 
@@ -1172,6 +1185,9 @@ func (r *CloudflareAccessPolicyReconciler) reconcileDelete(
 		)
 		if err := r.removeMTLSCertificate(ctx, accessService, accountID, policy.Status.MTLSRuleID); err != nil {
 			log.Error(err, "failed to remove mTLS certificate")
+			r.Recorder.Eventf(policy, nil, corev1.EventTypeWarning, "CleanupError", "Delete",
+				"Failed to remove mTLS certificate %s: %s", policy.Status.MTLSRuleID, err.Error())
+			return ctrl.Result{RequeueAfter: accessPolicyRequeueAfterError}, nil
 		}
 	}
 

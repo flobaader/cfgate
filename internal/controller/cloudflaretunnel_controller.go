@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -659,7 +660,10 @@ func (r *CloudflareTunnelReconciler) collectIngressRules(ctx context.Context, tu
 				}
 
 				if string(parentRef.Name) == gw.Name && parentNS == gw.Namespace {
-					routeRules := r.buildRulesFromHTTPRoute(&route)
+					routeRules, err := r.buildRulesFromHTTPRoute(&route)
+					if err != nil {
+						return nil, 0, fmt.Errorf("route %s/%s: %w", route.Namespace, route.Name, err)
+					}
 					rules = append(rules, routeRules...)
 					routeCount++
 				}
@@ -685,34 +689,59 @@ func (r *CloudflareTunnelReconciler) collectIngressRules(ctx context.Context, tu
 }
 
 // buildRulesFromHTTPRoute builds ingress rules from an HTTPRoute.
-func (r *CloudflareTunnelReconciler) buildRulesFromHTTPRoute(route *gateway.HTTPRoute) []cloudflare.IngressRule {
+func (r *CloudflareTunnelReconciler) buildRulesFromHTTPRoute(route *gateway.HTTPRoute) ([]cloudflare.IngressRule, error) {
 	var rules []cloudflare.IngressRule
+	var errs []error
 
 	for _, hostname := range route.Spec.Hostnames {
 		for _, rule := range route.Spec.Rules {
-			// Get path from matches
-			path := ""
-			if len(rule.Matches) > 0 && rule.Matches[0].Path != nil {
-				if rule.Matches[0].Path.Value != nil {
-					path = *rule.Matches[0].Path.Value
-				}
+			if len(rule.BackendRefs) == 0 {
+				continue
 			}
 
-			// Get backend service
-			if len(rule.BackendRefs) > 0 {
-				backend := rule.BackendRefs[0]
-				servicePort := int32(80)
-				if backend.Port != nil {
-					servicePort = int32(*backend.Port)
-				}
+			if len(rule.BackendRefs) > 1 {
+				errs = append(errs, fmt.Errorf("multiple backendRefs are not supported for Cloudflare Tunnel ingress"))
+				continue
+			}
 
-				protocol := annotations.GetAnnotation(route, annotations.AnnotationOriginProtocol)
-				if protocol != "https" {
-					protocol = "http"
-				}
+			backend := rule.BackendRefs[0]
+			if backend.Group != nil && string(*backend.Group) != "" {
+				errs = append(errs, fmt.Errorf("backendRef %s uses unsupported group %q", backend.Name, string(*backend.Group)))
+				continue
+			}
+			if backend.Kind != nil && string(*backend.Kind) != "Service" {
+				errs = append(errs, fmt.Errorf("backendRef %s uses unsupported kind %q", backend.Name, string(*backend.Kind)))
+				continue
+			}
 
-				service := fmt.Sprintf("%s://%s.%s.svc.cluster.local:%d",
-					protocol, backend.Name, route.Namespace, servicePort)
+			backendNamespace := route.Namespace
+			if backend.Namespace != nil {
+				backendNamespace = string(*backend.Namespace)
+			}
+
+			servicePort := int32(80)
+			if backend.Port != nil {
+				servicePort = int32(*backend.Port)
+			}
+
+			protocol := annotations.GetAnnotation(route, annotations.AnnotationOriginProtocol)
+			if protocol != "https" {
+				protocol = "http"
+			}
+
+			service := fmt.Sprintf("%s://%s.%s.svc.cluster.local:%d",
+				protocol, backend.Name, backendNamespace, servicePort)
+
+			matches := rule.Matches
+			if len(matches) == 0 {
+				matches = []gateway.HTTPRouteMatch{{}}
+			}
+
+			for _, match := range matches {
+				path := ""
+				if match.Path != nil && match.Path.Value != nil {
+					path = *match.Path.Value
+				}
 
 				ingressRule := cloudflare.IngressRule{
 					Hostname: string(hostname),
@@ -720,7 +749,6 @@ func (r *CloudflareTunnelReconciler) buildRulesFromHTTPRoute(route *gateway.HTTP
 					Service:  service,
 				}
 
-				// Apply origin config from annotations
 				originConfig := cloudflared.BuildOriginConfig(nil, route.Annotations)
 				if originConfig != nil {
 					ingressRule.OriginRequest = &cloudflare.OriginRequestConfig{
@@ -737,7 +765,7 @@ func (r *CloudflareTunnelReconciler) buildRulesFromHTTPRoute(route *gateway.HTTP
 		}
 	}
 
-	return rules
+	return rules, errors.Join(errs...)
 }
 
 // reconcileDelete handles CloudflareTunnel deletion by deleting tunnel connections,
@@ -762,11 +790,10 @@ func (r *CloudflareTunnelReconciler) reconcileDelete(ctx context.Context, tunnel
 		// Try to delete tunnel from Cloudflare
 		cfClient, err := r.getCloudflareClientForDeletion(ctx, tunnel)
 		if err != nil {
-			// Could not get credentials from either primary or fallback
-			log.Error(err, "failed to create Cloudflare client for deletion, tunnel may be orphaned on Cloudflare")
-			r.Recorder.Eventf(tunnel, nil, corev1.EventTypeWarning, "TunnelOrphanedNoCredentials", "Delete",
-				"Tunnel %s may be orphaned on Cloudflare: %v", tunnel.Status.TunnelID, err)
-			// Continue with finalizer removal - don't block deletion
+			log.Error(err, "failed to create Cloudflare client for deletion")
+			r.Recorder.Eventf(tunnel, nil, corev1.EventTypeWarning, "TunnelDeleteBlocked", "Delete",
+				"Tunnel %s cleanup blocked until credentials are restored or cfgate.io/deletion-policy=orphan is set: %v", tunnel.Status.TunnelID, err)
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		} else {
 			tunnelService := cloudflare.NewTunnelService(cfClient, log)
 			accountID, err := r.resolveAccountID(ctx, cfClient, tunnel)
@@ -776,9 +803,10 @@ func (r *CloudflareTunnelReconciler) reconcileDelete(ctx context.Context, tunnel
 			}
 
 			if accountID == "" {
-				log.Info("no account ID available for deletion, tunnel may be orphaned")
-				r.Recorder.Eventf(tunnel, nil, corev1.EventTypeWarning, "TunnelOrphanedNoAccountID", "Delete",
-					"Tunnel %s may be orphaned on Cloudflare: no account ID", tunnel.Status.TunnelID)
+				log.Info("no account ID available for deletion, keeping finalizer")
+				r.Recorder.Eventf(tunnel, nil, corev1.EventTypeWarning, "TunnelDeleteBlocked", "Delete",
+					"Tunnel %s cleanup blocked because no account ID is available; restore credentials or set cfgate.io/deletion-policy=orphan", tunnel.Status.TunnelID)
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 			} else if err := tunnelService.Delete(ctx, accountID, tunnel.Status.TunnelID); err != nil {
 				retryElapsed := time.Since(tunnel.DeletionTimestamp.Time)
 				if retryElapsed < deletionRetryBudget {
@@ -790,14 +818,13 @@ func (r *CloudflareTunnelReconciler) reconcileDelete(ctx context.Context, tunnel
 					// Once connections drain, the delete will succeed.
 					return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 				}
-				// Retry budget exhausted, fall through to finalizer removal.
-				// Tunnel may be orphaned on Cloudflare; emit warning for observability.
-				log.Error(err, "retry budget exhausted, proceeding with finalizer removal, tunnel may be orphaned",
+				log.Error(err, "retry budget exhausted, blocking deletion until operator explicitly orphans or cleanup succeeds",
 					"retryElapsed", retryElapsed.Round(time.Second),
 					"tunnelID", tunnel.Status.TunnelID)
-				r.Recorder.Eventf(tunnel, nil, corev1.EventTypeWarning, "TunnelOrphanedDeleteFailed", "Delete",
-					"Tunnel %s may be orphaned on Cloudflare after %s of retries: %v",
+				r.Recorder.Eventf(tunnel, nil, corev1.EventTypeWarning, "TunnelDeleteBlocked", "Delete",
+					"Tunnel %s cleanup still failing after %s; keeping finalizer until cleanup succeeds or cfgate.io/deletion-policy=orphan is set: %v",
 					tunnel.Status.TunnelID, retryElapsed.Round(time.Second), err)
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 			} else {
 				log.Info("Deleted tunnel from Cloudflare", "tunnelID", tunnel.Status.TunnelID)
 				r.Recorder.Eventf(tunnel, nil, corev1.EventTypeNormal, "TunnelDeleted", "Delete", "Deleted tunnel %s from Cloudflare", tunnel.Status.TunnelID)
